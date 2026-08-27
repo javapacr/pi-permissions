@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": ["Bash(git status)"],
+    "deny": [],
+    "ask": []
+  },
+  "defaultMode": "acceptEdits",
+  "productionSupport": { "readOnlyBash": ["git status", "kubectl get"] }
+}

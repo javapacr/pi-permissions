@@ -8,43 +8,56 @@ import * as paths from "../rules/paths.ts";
 import * as webfetch from "../rules/webfetch.ts";
 import * as mcp from "../rules/mcp.ts";
 import * as agent from "../rules/agent.ts";
+import * as parse from "../rules/parse.ts";
+import * as evaluator from "../evaluator.ts";
 import * as safety from "../safety.ts";
 import * as ask from "../ask.ts";
 import * as persist from "../persist.ts";
 
-const stubs: Array<[string, Record<string, unknown>, string]> = [
-  ["canonicalize.canonicalize", canonicalize, "canonicalize"],
-  ["loader.loadRules", loader, "loadRules"],
-  ["rules/bash.matchBashRule", bash, "matchBashRule"],
-  ["rules/paths.matchPathRule", paths, "matchPathRule"],
-  ["rules/webfetch.matchDomainRule", webfetch, "matchDomainRule"],
-  ["rules/mcp.matchMcpRule", mcp, "matchMcpRule"],
-  ["rules/agent.matchAgentRule", agent, "matchAgentRule"],
-  ["safety.checkSafety", safety, "checkSafety"],
-  ["ask.ask", ask, "ask"],
-  ["persist.persistAllowRule", persist, "persistAllowRule"],
+const implemented: Array<[string, Record<string, unknown>, string]> = [
+	["canonicalize.canonicalize", canonicalize, "canonicalize"],
+	["loader.loadRules", loader, "loadRules"],
+	["rules/bash.matchBashRule", bash, "matchBashRule"],
+	["rules/paths.matchPathRule", paths, "matchPathRule"],
+	["rules/webfetch.matchDomainRule", webfetch, "matchDomainRule"],
+	["rules/mcp.matchMcpRule", mcp, "matchMcpRule"],
+	["rules/agent.matchAgentRule", agent, "matchAgentRule"],
+	["rules/parse.parseRuleSpec", parse, "parseRuleSpec"],
+	["evaluator.evaluate", evaluator, "evaluate"],
 ];
 
-test("every stub module exports its named function and throws with its fill-FS marker", () => {
-  for (const [label, mod, fnName] of stubs) {
-    const fn = mod[fnName];
-    assert.equal(typeof fn, "function", `${label} must export function ${fnName}`);
-    assert.throws(
-      () => (fn as (...args: unknown[]) => unknown)(),
-      /FS[0-9]/,
-      `${label} must throw until its feature set lands`,
-    );
-  }
+test("every FS1 module exports its named function (implemented in FS1)", () => {
+	for (const [label, mod, fnName] of implemented) {
+		assert.equal(typeof mod[fnName], "function", `${label} must export function ${fnName}`);
+	}
+});
+
+const stubs: Array<[string, Record<string, unknown>, string]> = [
+	["safety.checkSafety", safety, "checkSafety"],
+	["ask.ask", ask, "ask"],
+	["persist.persistAllowRule", persist, "persistAllowRule"],
+];
+
+test("FS3 stub modules still throw with their fill-FS marker", () => {
+	for (const [label, mod, fnName] of stubs) {
+		const fn = mod[fnName];
+		assert.equal(typeof fn, "function", `${label} must export function ${fnName}`);
+		assert.throws(
+			() => (fn as (...args: unknown[]) => unknown)(),
+			/FS[0-9]/,
+			`${label} must throw until FS3 lands`,
+		);
+	}
 });
 
 test("reference/ bridge files exist with provenance headers", () => {
-  for (const file of ["converter.ts", "enforcer.ts", "loader.ts"]) {
-    const url = new URL(`../reference/${file}`, import.meta.url);
-    assert.ok(existsSync(url), `reference/${file} must exist`);
-    const text = readFileSync(url, "utf-8");
-    assert.ok(
-      text.includes("REFERENCE ONLY — grafted from javapacr/pi-claude-permissions-bridge"),
-      `reference/${file} must carry the provenance header`,
-    );
-  }
+	for (const file of ["converter.ts", "enforcer.ts", "loader.ts"]) {
+		const url = new URL(`../reference/${file}`, import.meta.url);
+		assert.ok(existsSync(url), `reference/${file} must exist`);
+		const text = readFileSync(url, "utf-8");
+		assert.ok(
+			text.includes("REFERENCE ONLY — grafted from javapacr/pi-claude-permissions-bridge"),
+			`reference/${file} must carry the provenance header`,
+		);
+	}
 });

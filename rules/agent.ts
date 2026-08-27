@@ -1,8 +1,15 @@
 /**
- * `Agent(name)` rule matching for subagent spawn gating.
- * TODO(FS1) — filled by the rule-engine core; see
- * docs/pi-permissions-backlog.md §FS1.
+ * Agent (subagent tool) rule matching (FS1) — Claude semantics per the
+ * researcher artifact (ccperms.md §3, "Agent" row): name-based,
+ * `Agent(AgentName)`; no glob documented. Bare `Agent` = any agent
+ * (whole-tool form). Matching is exact and case-sensitive; parameter forms
+ * like `Agent(model:…)` are parking lot (parser rejects with a warning).
  */
-export function matchAgentRule(_pattern: string, _agentName: string): boolean {
-  throw new Error("pi-permissions: matchAgentRule is implemented in FS1");
+
+import type { CanonicalTarget } from "../types.ts";
+
+export function matchAgentRule(agentName: string | undefined, target: CanonicalTarget): boolean {
+	if (target.family !== "agent") return false;
+	if (agentName === undefined) return true;
+	return target.agent === agentName;
 }

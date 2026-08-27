@@ -7,7 +7,6 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   DEFAULT_MODE,
@@ -15,10 +14,16 @@ import {
   getModeMeta,
   normalizeMode,
   normalizeShiftTabOptions,
-  stringArrayOrUndefined,
   stringOrUndefined,
 } from "./modes.ts";
 import type { CustomModePolicy, ModeDefinition, Pattern, PermissionMode } from "./modes.ts";
+import {
+  DEFAULT_CATASTROPHIC,
+  DEFAULT_DANGEROUS,
+  DEFAULT_PROTECTED_PATHS,
+  loadZackifyCompatConfig,
+} from "./loader.ts";
+import type { PermissionsConfig } from "./loader.ts";
 
 type UiContext = {
   ui: any;
@@ -31,30 +36,6 @@ type UiContext = {
 interface SessionAllow {
   tools: Set<string>;
   commands: Set<string>;
-}
-
-interface PermissionsConfig {
-  mode?: string;
-  dangerousPatterns?: Pattern[];
-  catastrophicPatterns?: Pattern[];
-  protectedPaths?: string[];
-  allowCatastrophic?: boolean;
-  shiftTabOptions?: string[];
-  defaultMode?: string;
-  hideDefaultMode?: boolean;
-  planModeAllowedMcpServers?: string[];
-  customModes?: ModeDefinition[];
-}
-
-interface PiSettingsConfig {
-  piClaudePermissions?: {
-    allowCatastrophic?: boolean;
-    shiftTabOptions?: string[];
-    defaultMode?: string;
-    hideDefaultMode?: boolean;
-    planModeAllowedMcpServers?: string[];
-    customModes?: ModeDefinition[];
-  };
 }
 
 const PLAN_BLOCK_REASON = "You are in plan mode, you can only read files/search tools until the user exits plan mode.";
@@ -77,31 +58,12 @@ const SAFE_PLAN_BASH_PREFIXES = [
   "npm info", "npm search", "npm outdated", "npm audit",
 ];
 
-const DEFAULT_DANGEROUS: Pattern[] = [
-  { pattern: "chmod -R 777", description: "insecure recursive permissions" },
-  { pattern: "chown -R", description: "recursive ownership change" },
-  { pattern: "> /dev/", description: "direct device write" },
-];
-
-const DEFAULT_CATASTROPHIC: Pattern[] = [
-  { pattern: "sudo mkfs", description: "sudo filesystem format" },
-  { pattern: "mkfs.", description: "filesystem format" },
-  { pattern: "dd if=", description: "raw disk write" },
-  { pattern: ":(){ :|:& };:", description: "fork bomb" },
-  { pattern: "> /dev/sda", description: "overwrite disk" },
-  { pattern: "> /dev/nvme", description: "overwrite disk" },
-  { pattern: "sudo dd", description: "sudo raw disk operation" },
-];
+// FS1: DEFAULT_DANGEROUS / DEFAULT_CATASTROPHIC / DEFAULT_PROTECTED_PATHS moved
+// to loader.ts (single config surface); imported above.
 
 const CRITICAL_DIRS = [
   "/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64", "/opt",
   "/proc", "/root", "/run", "/sbin", "/srv", "/sys", "/tmp", "/usr", "/var",
-];
-
-const DEFAULT_PROTECTED_PATHS = [
-  "~/.ssh", "~/.aws", "~/.gnupg", "~/.gpg", "~/.bashrc", "~/.bash_profile",
-  "~/.profile", "~/.zshrc", "~/.zprofile", "~/.config/git/credentials",
-  "~/.netrc", "~/.npmrc", "~/.docker/config.json", "~/.kube/config", "~/.pi/agent/auth.json",
 ];
 
 const PLAN_MODE_MESSAGE = `[PLAN MODE]
@@ -124,7 +86,7 @@ export default async function permissionExtension(pi: ExtensionAPI) {
     default: false,
   });
 
-  const config = await loadConfig();
+  const config = await loadZackifyCompatConfig();
   const home = homedir();
   const sessionAllow: SessionAllow = { tools: new Set(), commands: new Set() };
   const dangerousPatterns = config.dangerousPatterns ?? DEFAULT_DANGEROUS;
@@ -308,54 +270,10 @@ export default async function permissionExtension(pi: ExtensionAPI) {
   });
 }
 
-async function loadConfig(): Promise<PermissionsConfig> {
-  const globalPath = resolve(homedir(), ".pi/agent/extensions/permissions.json");
-  const localPath = resolve(process.cwd(), ".pi/extensions/permissions.json");
-  const globalSettingsPath = resolve(homedir(), ".pi/agent/settings.json");
-  const localSettingsPath = resolve(process.cwd(), ".pi/settings.json");
-  const global = await readJson<PermissionsConfig>(globalPath);
-  const local = await readJson<PermissionsConfig>(localPath);
-  const globalSettings = await readJson<PiSettingsConfig>(globalSettingsPath);
-  const localSettings = await readJson<PiSettingsConfig>(localSettingsPath);
-
-  return {
-    mode: stringOrUndefined(local.mode ?? global.mode),
-    dangerousPatterns: local.dangerousPatterns ?? global.dangerousPatterns ?? DEFAULT_DANGEROUS,
-    catastrophicPatterns: local.catastrophicPatterns ?? global.catastrophicPatterns ?? DEFAULT_CATASTROPHIC,
-    protectedPaths: local.protectedPaths ?? global.protectedPaths ?? DEFAULT_PROTECTED_PATHS,
-    allowCatastrophic: localSettings.piClaudePermissions?.allowCatastrophic
-      ?? globalSettings.piClaudePermissions?.allowCatastrophic
-      ?? false,
-    shiftTabOptions: localSettings.piClaudePermissions?.shiftTabOptions
-      ?? globalSettings.piClaudePermissions?.shiftTabOptions
-      ?? local.shiftTabOptions
-      ?? global.shiftTabOptions,
-    defaultMode: stringOrUndefined(localSettings.piClaudePermissions?.defaultMode
-      ?? globalSettings.piClaudePermissions?.defaultMode
-      ?? local.defaultMode
-      ?? global.defaultMode),
-    hideDefaultMode: localSettings.piClaudePermissions?.hideDefaultMode
-      ?? globalSettings.piClaudePermissions?.hideDefaultMode
-      ?? local.hideDefaultMode
-      ?? global.hideDefaultMode,
-    planModeAllowedMcpServers: stringArrayOrUndefined(localSettings.piClaudePermissions?.planModeAllowedMcpServers)
-      ?? stringArrayOrUndefined(globalSettings.piClaudePermissions?.planModeAllowedMcpServers)
-      ?? stringArrayOrUndefined(local.planModeAllowedMcpServers)
-      ?? stringArrayOrUndefined(global.planModeAllowedMcpServers),
-    customModes: localSettings.piClaudePermissions?.customModes
-      ?? globalSettings.piClaudePermissions?.customModes
-      ?? local.customModes
-      ?? global.customModes,
-  };
-}
-
-async function readJson<T>(path: string): Promise<T | Record<string, never>> {
-  try {
-    return JSON.parse(await readFile(path, "utf-8"));
-  } catch {
-    return {};
-  }
-}
+// loadConfig()/readJson() moved to loader.ts as loadZackifyCompatConfig()
+// (FS1: loader.ts is the single config surface; same paths, same merge —
+// behavior identical). FS2 rewires this call site onto the dual-source
+// loadRules() and deletes the legacy reader.
 
 function enforcePlanMode(toolName: string, input: Record<string, unknown>, allowedMcpServers: Set<string>) {
   if (!PLAN_MODE_TOOLS.includes(toolName)) return { block: true as const, reason: PLAN_BLOCK_REASON };

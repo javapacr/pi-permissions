@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": { "not": "an array" },
+    "deny": ["Bash(ok)", 42],
+    "ask": []
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": ["mcp__mempalace__*"],
+    "deny": [],
+    "ask": []
+  },
+  "defaultMode": "default",
+  "protectedPaths": ["~/.ssh", "~/.gnupg"],
+  "persistTarget": "pi-local"
+}

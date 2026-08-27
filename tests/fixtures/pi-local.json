@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": ["Bash(rm -rf *)", "Edit(src/**)"],
+    "deny": [],
+    "ask": []
+  },
+  "defaultMode": "bypassPermissions",
+  "children": { "policy": "inherit" }
+}

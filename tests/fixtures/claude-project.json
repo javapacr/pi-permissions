@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": ["Bash(npm run *)", "Read(//docs/**)"],
+    "deny": ["Read(.env)", "Write(/never/consulted)"],
+    "ask": []
+  }
+}

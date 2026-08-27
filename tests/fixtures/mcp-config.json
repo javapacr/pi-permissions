@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mempalace": {
+      "command": "/bin/mempalace-mcp",
+      "directTools": ["search", "diary_write"]
+    }
+  }
+}

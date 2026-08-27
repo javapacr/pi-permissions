@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "servers": {
+    "mempalace": {
+      "configHash": "abc",
+      "tools": [
+        { "name": "mempalace_search", "description": "search" },
+        { "name": "mempalace_diary_write", "description": "write diary" }
+      ]
+    }
+  }
+}
