@@ -1,0 +1,21 @@
+pi-permissions
+Copyright 2026 javapacr
+
+This repository was seeded on 2026-08-31 as a fork of:
+
+  @zackify/pi-claude-permissions v1.0.6
+  https://github.com/zackify/pi-claude-permissions
+  Copyright (c) 2026 Zach — MIT
+
+The upstream LICENSE is retained verbatim as this repository's LICENSE. The
+extension entrypoint (index.ts) and mode skeleton (modes.ts) are ports of the
+upstream source, modified only for the repository layout described in
+README.md / NOTES.md.
+
+The reference/ directory contains verbatim files (each prepended with a
+provenance header) from:
+
+  javapacr/pi-claude-permissions-bridge — MIT
+
+They are non-compiled reference material for the FS1 rule-engine rework and
+are never imported by live code.
