@@ -65,7 +65,14 @@ Date: 2026-08-31 · Charge: `~/.pi/tmp/fs0-charge.md` · Backlog: `../docs/pi-pe
   - `node:test` over vitest (node 26 native TS support; leaner install).
   - Stub function names/signatures are provisional — FS1 reworks them; the
     stubs exist to prove the module graph and give FS1 honest anchor points.
-  - `npm test` runs `node --test tests/*.test.ts` (shell-expanded file list),
+- `npm test` runs `node --test tests/*.test.ts` (shell-expanded file list),
     not the spec's `node --test tests/` — node 26 rejects the bare-directory
     form as a module entry (MODULE_NOT_FOUND). Glob and cwd-discovery forms
     verified green.
+- Probe-dir action (manager, outside this repo): copied `~/.pi/agent/auth.json`
+    → `~/.pi/tmp/pi-permissions-probe/auth.json` (mode 0600 preserved) because the
+    probe agent dir shipped with no auth — any model call exited at "No API key".
+    It contains a live API key: **delete it when the probe profile retires
+    (post-FS6)**. Note the builder-session sandbox still blocks the provider
+    endpoint, so headless model round-trips remain impossible from the builder
+    pane; the copy primarily enables the orchestrator's Herdr-tab probe.
