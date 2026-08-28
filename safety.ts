@@ -10,7 +10,7 @@
  */
 
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { CanonicalTarget } from "./types.ts";
 
 export type Pattern = { pattern: string; description: string };
@@ -42,6 +42,9 @@ export const DEFAULT_PROTECTED_PATHS = [
   "~/.ssh", "~/.aws", "~/.gnupg", "~/.gpg", "~/.bashrc", "~/.bash_profile",
   "~/.profile", "~/.zshrc", "~/.zprofile", "~/.config/git/credentials",
   "~/.netrc", "~/.npmrc", "~/.docker/config.json", "~/.kube/config", "~/.pi/agent/auth.json",
+  // R8 (review): the per-profile credential files — profiles run with their own
+  // PI_CODING_AGENT_DIR, and the agent-dir entry above does not cover them.
+  "~/.pi/personal/auth.json", "~/.pi/work/auth.json",
 ];
 
 const CRITICAL_DIRS = [
@@ -53,9 +56,30 @@ export type SafetyFloorOptions = {
   home: string;
   /** Absolute, `~/`-expanded protected paths. */
   protectedPaths: string[];
-  /** Session cwd (rm -rf outside-project labeling). */
+  /** Session cwd (rm -rf outside-project labeling + relative-target critical-dir detection). */
   cwd?: string;
 };
+
+/**
+ * Static shell-variable expansion for floor reasoning (R2): $HOME, ${HOME},
+ * $USER, ${USER} — the forms an unmodified model naturally emits. Command
+ * substitution `$(…)` is deliberately NOT expanded (documented limitation,
+ * parked: closing it requires shell-level evaluation).
+ */
+export function expandShellVars(command: string, home: string): string {
+  const user = basename(home);
+  return command
+    .replace(/\$\{HOME\}/g, home)
+    .replace(/\$HOME\b/g, home)
+    .replace(/\$\{USER\}/g, user)
+    .replace(/\$USER\b/g, user);
+}
+
+/** Long-flag normalization for rm (R2): `--recursive`/`--force` → short flags
+ * so the short-flag rmRfPatterns also cover long-flag spellings. */
+function normalizeRmLongFlags(command: string): string {
+  return command.replace(/--recursive\b/g, "-r").replace(/--force\b/g, "-f");
+}
 
 /** Build the always-on floor as an evaluator checkSafety hook. */
 export function makeSafetyFloor(
@@ -64,9 +88,11 @@ export function makeSafetyFloor(
   const cwd = resolve(opts.cwd ?? process.cwd());
   return (target: CanonicalTarget): SafetyVerdict | undefined => {
     if (target.family === "bash") {
-      const command = target.command ?? "";
+      // R2: reason about the variable-expanded command text so env-var
+      // indirection ($HOME/.ssh/…) cannot slip past the floor.
+      const command = expandShellVars(target.command ?? "", opts.home);
 
-      const critical = checkCriticalRmRf(command, opts.home);
+      const critical = checkCriticalRmRf(command, opts.home, cwd);
       if (critical) return blocked(`critical rm -rf — ${critical}`);
 
       const catastrophe = findMatch(command, DEFAULT_CATASTROPHIC);
@@ -139,8 +165,25 @@ function findMatch(command: string, patterns: Pattern[]): Pattern | undefined {
   return patterns.find((pattern) => command.includes(pattern.pattern));
 }
 
-/** Critical `rm -rf` detection (ported verbatim from zackify, home injectable). */
-export function checkCriticalRmRf(command: string, home: string = homedir()): string | null {
+/** Critical `rm -rf` detection (zackify port; R2-hardened: long-flag variants,
+ * path normalization (`//etc`, `/etc/../etc`), and cwd-relative targets). */
+export function checkCriticalRmRf(command: string, home: string = homedir(), cwd?: string): string | null {
+  // R2: check both the raw text and the long-flag-normalized variant — the
+  // short-flag patterns then cover `rm --recursive --force /etc` spellings.
+  for (const variant of [command, normalizeRmLongFlags(command)]) {
+    const hit = checkCriticalRmRfVariant(variant, home, cwd);
+    if (hit) return hit;
+  }
+
+  if (/\bsudo\s+/.test(command)) {
+    const nested = checkCriticalRmRf(command.replace(/\bsudo\s+/, ""), home, cwd);
+    if (nested) return `sudo ${nested}`;
+  }
+
+  return null;
+}
+
+function checkCriticalRmRfVariant(command: string, home: string, cwd?: string): string | null {
   for (const pattern of rmRfPatterns()) {
     const match = command.match(pattern);
     if (!match) continue;
@@ -148,7 +191,7 @@ export function checkCriticalRmRf(command: string, home: string = homedir()): st
     const targets = match[1]!.trim().split(/\s+/).filter((target) => !target.startsWith("-"));
 
     for (const target of targets) {
-      const resolved = resolveAbsoluteShellTarget(target, home);
+      const resolved = resolveAbsoluteShellTarget(target, home, cwd);
       if (!resolved) continue;
 
       const normalized = resolved.replace(/\/+$/, "") || "/";
@@ -156,11 +199,6 @@ export function checkCriticalRmRf(command: string, home: string = homedir()): st
       if (normalized === home) return "rm -rf ~ — recursive delete entire home directory";
       if (CRITICAL_DIRS.includes(normalized)) return `rm -rf ${normalized} — recursive delete critical system directory`;
     }
-  }
-
-  if (/\bsudo\s+/.test(command)) {
-    const nested = checkCriticalRmRf(command.replace(/\bsudo\s+/, ""), home);
-    if (nested) return `sudo ${nested}`;
   }
 
   return null;
@@ -200,11 +238,16 @@ function rmRfPatterns() {
   ];
 }
 
-function resolveAbsoluteShellTarget(target: string, home: string): string | null {
+function resolveAbsoluteShellTarget(target: string, home: string, cwd?: string): string | null {
   if (target === "~") return home;
   if (target.startsWith("~/")) return resolve(home, target.slice(2));
   if (target === "/*") return "/";
-  if (target.startsWith("/")) return target;
+  // R2: resolve() normalizes `//etc` and `/etc/../etc` forms before the
+  // CRITICAL_DIRS comparison (raw-string compare missed both).
+  if (target.startsWith("/")) return resolve(target);
+  // R2: relative targets (rm -rf ../../../../..) resolve against the session
+  // cwd when known, so deep-upward deletes that reach a critical dir are caught.
+  if (cwd !== undefined) return resolve(cwd, target);
   return null;
 }
 
