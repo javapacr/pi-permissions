@@ -28,6 +28,8 @@ export type HarnessOptions = {
   flags?: Record<string, unknown>;
   /** Simulate a subagent child session (PI_SUBAGENT_CHILD=1). */
   child?: boolean;
+  /** Extra env vars for the boot (FS4: PI_SUBAGENT_EXTENSION_BINDINGS, PI_SUBAGENT_CHILD_AGENT). */
+  env?: Record<string, string>;
 };
 
 export function boot(opts: HarnessOptions = {}) {
@@ -50,11 +52,19 @@ export function boot(opts: HarnessOptions = {}) {
     HOME: process.env.HOME,
     AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
     CHILD: process.env.PI_SUBAGENT_CHILD,
+    BINDINGS: process.env.PI_SUBAGENT_EXTENSION_BINDINGS,
+    CHILD_AGENT: process.env.PI_SUBAGENT_CHILD_AGENT,
+    ...Object.fromEntries(Object.keys(opts.env ?? {}).map((key) => [key, process.env[key]])),
   };
   process.env.HOME = home;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   delete process.env.PI_SUBAGENT_CHILD;
   if (opts.child) process.env.PI_SUBAGENT_CHILD = "1";
+  // Hermetic child-side inputs regardless of the host session's own env
+  // (this builder process may itself be a pi-subagents child).
+  delete process.env.PI_SUBAGENT_EXTENSION_BINDINGS;
+  delete process.env.PI_SUBAGENT_CHILD_AGENT;
+  for (const [key, value] of Object.entries(opts.env ?? {})) process.env[key] = value;
 
   const dialogs: Dialog[] = [];
   const notifications: Notification[] = [];
@@ -127,6 +137,14 @@ export function boot(opts: HarnessOptions = {}) {
       await ensureBooted();
       return handlers.get("before_agent_start")!({}, makeCtx(true));
     },
+    /** Write a pi-subagents agent definition into <cwd>/.pi/agents (project scope). */
+    writeAgentDef: (file: string, frontmatter: Record<string, string>) => {
+      const dir = join(cwd, ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      const lines = Object.entries(frontmatter).map(([k, v]) => `${k}: ${v}`);
+      writeFileSync(join(dir, file), `---\n${lines.join("\n")}\n---\n\nAgent body.\n`);
+    },
+
     toolCall: async (toolName: string, input: Record<string, unknown>, hasUI = true) => {
       await ensureBooted();
       return handlers.get("tool_call")!({ toolName, input, toolCallId: `t${++seq}` }, makeCtx(hasUI));
@@ -141,12 +159,10 @@ export function boot(opts: HarnessOptions = {}) {
     },
 
     dispose: () => {
-      if (savedEnv.HOME !== undefined) process.env.HOME = savedEnv.HOME;
-      else delete process.env.HOME;
-      if (savedEnv.AGENT_DIR !== undefined) process.env.PI_CODING_AGENT_DIR = savedEnv.AGENT_DIR;
-      else delete process.env.PI_CODING_AGENT_DIR;
-      if (savedEnv.CHILD !== undefined) process.env.PI_SUBAGENT_CHILD = savedEnv.CHILD;
-      else delete process.env.PI_SUBAGENT_CHILD;
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value !== undefined) process.env[key] = value;
+        else delete process.env[key];
+      }
       rmSync(home, { recursive: true, force: true });
       rmSync(agentDir, { recursive: true, force: true });
       rmSync(cwd, { recursive: true, force: true });
