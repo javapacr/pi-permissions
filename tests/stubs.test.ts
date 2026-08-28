@@ -24,30 +24,25 @@ const implemented: Array<[string, Record<string, unknown>, string]> = [
 	["rules/agent.matchAgentRule", agent, "matchAgentRule"],
 	["rules/parse.parseRuleSpec", parse, "parseRuleSpec"],
 	["evaluator.evaluate", evaluator, "evaluate"],
+	["safety.checkSafety", safety, "checkSafety"],
+	["ask.resolveAsk", ask, "resolveAsk"],
+	["persist.persistAllowRule", persist, "persistAllowRule"],
 ];
 
-test("every FS1 module exports its named function (implemented in FS1)", () => {
+test("every FS1+FS3 module exports its named function (implemented)", () => {
 	for (const [label, mod, fnName] of implemented) {
 		assert.equal(typeof mod[fnName], "function", `${label} must export function ${fnName}`);
 	}
 });
 
-const stubs: Array<[string, Record<string, unknown>, string]> = [
-	["safety.checkSafety", safety, "checkSafety"],
-	["ask.ask", ask, "ask"],
-	["persist.persistAllowRule", persist, "persistAllowRule"],
-];
-
-test("FS3 stub modules still throw with their fill-FS marker", () => {
-	for (const [label, mod, fnName] of stubs) {
-		const fn = mod[fnName];
-		assert.equal(typeof fn, "function", `${label} must export function ${fnName}`);
-		assert.throws(
-			() => (fn as (...args: unknown[]) => unknown)(),
-			/FS[0-9]/,
-			`${label} must throw until FS3 lands`,
-		);
-	}
+test("FS3 modules no longer throw (stubs filled by the FS2+FS3 release)", () => {
+	// The FS0 throw-markers are gone. Safety smoke with a minimal canonical
+	// target; ask/persist behavior is validated in their own test files.
+	assert.doesNotThrow(() =>
+		safety.checkSafety(
+			{ spec: "Read(/x)", family: "path", tool: "Read", piTool: "read", path: "/x" },
+			{ home: "/h", protectedPaths: [] },
+		));
 });
 
 test("reference/ bridge files exist with provenance headers", () => {

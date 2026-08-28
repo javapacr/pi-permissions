@@ -20,6 +20,9 @@ export type EvaluateOptions = {
 	checkSafety?: SafetyHook;
 	/** PowerShell commands match case-insensitively (Claude parity). */
 	caseInsensitiveBash?: boolean;
+	/** Skip the allow pass (production-support: allow rules are not consulted —
+	 *  the mode baseline prompts regardless of allow rules). */
+	ignoreAllow?: boolean;
 };
 
 /** Evaluate a canonical target against the merged rule set. */
@@ -36,6 +39,7 @@ export function evaluate(
 	}
 
 	for (const action of ["deny", "ask", "allow"] as const) {
+		if (action === "allow" && opts.ignoreAllow) continue;
 		for (const rule of rules) {
 			if (rule.action !== action) continue;
 			if (ruleMatches(rule, target, opts)) {
