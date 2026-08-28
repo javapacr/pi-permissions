@@ -330,3 +330,176 @@ UX; Claude Code parity).
   `reloadState` (also rebuilds the registry).
 - "Always" appends to the live rule set via `onPersist` — no restart needed
   for persisted rules within a session.
+
+---
+
+# FS4 build notes (pi-subagents enforcement — D8 inheritance)
+
+Date: 2026-08-28 (system clock) · Charge: `~/.pi/tmp/fs4-charge.md`
+
+## What was built
+
+- `child.ts` (new) — the FS4 child-side machinery:
+  - `readInheritedMode(env)`: decodes `PI_SUBAGENT_EXTENSION_BINDINGS` →
+    `pi-permissions/1.mode`; any decode/validation failure → `undefined`
+    (caller falls to the floor).
+  - `resolveChildMode({agentName, cwd, children, inherited})`: the D8
+    resolution chain — config `children.agentModes[agent]` > agent-definition
+    frontmatter `permissionMode` > inherited snapshot > `bypassPermissions`
+    floor. Identical function used parent-side (pre-injection) and
+    child-side (post-decode) → idempotent double-resolution, and the
+    override still applies when the parent session doesn't run this
+    extension at all.
+  - `frontmatterAgentMode`: light agent-definition scan (project
+    `.pi/agents`/`.agents` nearest-first walk up to home, then user
+    `~/.agents` + `<agentDir>/agents`, then the shared npm-store
+    pi-subagents `agents/` dir). Matches filename stem, frontmatter
+    `name:`, or `aliases:`; invalid mode values ignored; first hit in
+    precedence order wins. Approximates pi-subagents'
+    `findConfiguredProjectRoot` nearest-root default policy (documented
+    divergence: git-root policy mode not mirrored).
+  - `childAskReason` / `childModeReason`: fail-close reasons that name the
+    blocking rule or the inherited mode's label and direct the model to
+    surface the request to the parent in its final result (phrase-stable
+    with the FS2 test pins: "subagent sessions cannot prompt",
+    "Surface this request to the parent session").
+  - `injectModeBinding(input, mode)`: merges our namespace into
+    `input.extensionBindings` of an ALLOWED `subagent` call — foreign
+    namespaces preserved, our namespace always overwritten (the model
+    cannot pre-grant itself a mode), never throws.
+- `index.ts` — child baseline now mode-aware (was flat rules-on-bypass):
+  `canonicalize → safety floor → deny → ask(fail-close) → allow (unless
+  PS ignoreAllow) → child-mode baseline` where the inherited mode's
+  baseline applies VERBATIM and every prompt-decision fail-closes.
+  Children read the binding + `PI_SUBAGENT_CHILD_AGENT` once at factory
+  execution (snapshot; never live-tracked), resolve the mode at
+  `session_start` (flags/`defaultMode` stay ignored). Parent side:
+  `Agent(name)` targets flow the normal pipeline (deny blocks spawn,
+  ask prompts — parent has UI), and every ALLOW exit calls
+  `allowAgentSpawn()` which resolves the child's effective mode
+  (overrides > parent's CURRENT mode) and injects it via
+  `injectModeBinding`. Non-agent families never touch the input.
+- `tests/harness.ts` — `env` option (saved/restored; the harness now
+  default-deletes `PI_SUBAGENT_EXTENSION_BINDINGS` +
+  `PI_SUBAGENT_CHILD_AGENT` for hermeticity — this builder process may
+  itself be a child) + `writeAgentDef` helper (project `.pi/agents`).
+- Tests: 168 = 136 prior + 32 new (`tests/fs4-child.test.ts` 16,
+  `tests/fs4-agent-gating.test.ts` 16). Coverage: decode edge cases,
+  precedence chain, agent-file matching, the 4-mode × {bash, write,
+  edit, mcp} child matrix (zero dialogs asserted on every path, UI and
+  headless), ask-rule fail-close under all four modes, allow-consult vs
+  PS ignoreAllow, readOnlyBash, per-agent overrides beating inheritance
+  (config, frontmatter, both, none), deny-blocks-spawn, bare-`Agent`
+  whole-tool semantics, injection hygiene (foreign ns preserved,
+  self-grant overwritten, non-agent inputs untouched, blocked spawns
+  carry no injection).
+
+## Step-0 channel verdict (mechanism risk — probed BEFORE building)
+
+**Validated channel: `input.extensionBindings` →
+`PI_SUBAGENT_EXTENSION_BINDINGS`** (primary; no fallback needed).
+Probe: `~/.pi/tmp/fs4-step0/` — drives pi-subagents' own
+`buildPiArgs()` (imported from the installed package under jiti, the
+same loader its async runner uses) with a perf-opted agent
+(`extensions: []` + `subagentOnlyExtensions: [<probe-ext dir>]` +
+`extensionBindings: {"pi-permissions/1": {"mode": "production-support"}}`),
+spawns the produced pi command with the production env pattern
+(`{...process.env, ...env}`), and the probe extension writes its env at
+factory execution. Result: child read
+`PI_SUBAGENT_EXTENSION_BINDINGS={"pi-permissions/1":{"mode":"production-support"}}`
+at load time; `PI_SUBAGENT_CHILD=1`, `PI_SUBAGENT_CHILD_AGENT=worker`,
+`PI_SUBAGENT_PARENT_SESSION` all present. The §3 recipe was proven in
+the same probe (the `-e <dir>` form loads).
+`omitExtensionBindingsEnv` findings: it strips STALE bindings (a) when
+pi-subagents spawns the detached async RUNNER (the runner rebuilds
+fresh bindings from the run config) and (b) for external-CLI agents —
+neither touches normal pi-child spawns; the fresh binding is set after
+the parent env spread at every pi-child spawn site (foreground
+execution.ts, subagent-runner.ts, async-execution.ts — all statically
+traced input→buildPiArgs→env).
+
+## Judgment calls
+
+1. **`permissionMode` frontmatter is OUR read, not pi-subagents'.**
+   pi-subagents has no native `permissionMode` field (checked agents.ts
+   frontmatter parsing + agentOverrides surface); unknown frontmatter
+   keys are inert to it. We parse the key ourselves from the same
+   definition dirs it discovers agents in. Config key
+   `children.agentModes` (in `permissions.json` pi scopes) is an
+   additional override surface ABOVE frontmatter (operator pin beats
+   agent author), settled as: config > frontmatter > snapshot > floor.
+2. **Child-side override re-resolution** (same resolver as parent):
+   idempotent when the parent already resolved, and the only path to an
+   override when the parent lacks this extension (e.g. live profile
+   pre-FS6 spawning a worker from this monorepo — children still load
+   pi-permissions via `subagentOnlyExtensions`).
+3. **No PS context injection in children.** D2's
+   `before_agent_start` investigation framing stays parent-only; the
+   fail-close reasons already carry the mode label + surface-to-parent
+   instruction. Avoids touching child message flow.
+4. **pi-claude-sandbox wrap NOT added to the monorepo overrides.**
+   Charge said "optionally … do NOT block". The one-liner is documented
+   below, but adding it unverified risks bricking daily worker/oracle
+   spawns (extension-handler ORDER between two tool_call hooks —
+   wrap-then-evaluate vs evaluate-then-wrap — is not verifiable from
+   the builder pane). Orchestrator can add it after one live check.
+5. **Allow rules are consulted in non-PS children** (matrix verbatim:
+   default/acceptEdits children honor allow; PS children don't —
+   `ignoreAllow` mirrored). The FS2 floor behavior (allow moot in
+   bypass) is unchanged.
+6. **Bare `Agent` deny = whole-tool** (FS1 semantics pinned by test):
+   denies every spawn; `Agent(name)` denies the named agent only.
+
+## subagentOnlyExtensions recipe (§3) + monorepo `.pi/settings.json`
+
+For perf-opted children (`extensions: []`), the sanctioned mechanism is
+the agent override pair (verified: override strings flow verbatim to
+`-e` args; dir form loads via the manifest string array):
+
+```json
+{
+  "subagents": {
+    "agentOverrides": {
+      "worker": {
+        "extensions": [],
+        "subagentOnlyExtensions": [
+          "/Users/reevonr/Documents/projects/personal/pi-extensions/pi-permissions"
+        ]
+      }
+    }
+  }
+}
+```
+
+Applied to BOTH `worker` and `oracle` in the monorepo `.pi/settings.json`
+(the only change outside `pi-permissions/`, per charge). Child spawn
+becomes `pi --no-extensions -e <subagent-prompt-runtime.ts> -e
+<pi-permissions dir> …` — runtime extension + permission engine only.
+Interim state until FS6: the LIVE profiles' parents don't load
+pi-permissions, so children get the rules-on-bypass floor + per-agent
+overrides (no parent snapshot); probe parents (via `-e`) get full
+inheritance. Optional sandbox wrap (after a live ordering check):
+append `/Users/reevonr/.pi/agent/git/github.com/javapacr/pi-claude-sandbox`
+to the same array — handler-order caveat in judgment call 4.
+
+## Known limitations (FS4 scope)
+
+- **workflowScript children get no injection**: `runs.run` spawns don't
+  pass through the `subagent` tool call our hook sees; workflow authors
+  can pass `extensionBindings` explicitly per spawn (pi-subagents API
+  supports it). Documented; parking lot if it matters.
+- **No live mode tracking** (D8 ships snapshot-at-spawn; parking lot).
+- Frontmatter scan approximates pi-subagents' project-root resolution
+  (nearest-wins default mirrored; `git-root` policy mode not).
+- Built-in agent dir scan relies on the shared npm-store layout
+  (`<agentDir>/npm/node_modules/pi-subagents/agents`); a
+  differently-installed pi-subagents just means no builtin override.
+
+## FS5/FS6 hooks
+
+- `reloadState` already re-reads `keys.children` (agentModes hot-reload
+  lands free with FS5's watcher); the CHILD mode snapshot stays fixed
+  per process (by design).
+- FS6 rollout: install replaces the absolute dev-tree path in the
+  monorepo settings with the git-install ref; the probe profile
+  (`packages: []`) keeps working via `-e`.
