@@ -98,12 +98,15 @@ live floor still consumes this file's `protectedPaths`. After retirement both ke
    (H2's file): `~/.gnupg, ~/.gpg, ~/.bashrc, ~/.bash_profile, ~/.profile, ~/.zshrc,
    ~/.zprofile, ~/.config/git/credentials, ~/.netrc, ~/.npmrc, ~/.docker/config.json,
    ~/.kube/config, ~/.pi/agent/auth.json`.
-2. pi-permissions `safety.ts#DEFAULT_PROTECTED_PATHS` = **15 entries = the live 13 PLUS
-   `~/.ssh` and `~/.aws`** (strict superset; applies whenever no config `protectedPaths`
-   exists — and none does).
+2. pi-permissions `safety.ts#DEFAULT_PROTECTED_PATHS` = **17 entries = the live 13 PLUS
+   `~/.ssh`, `~/.aws`, `~/.pi/personal/auth.json`, `~/.pi/work/auth.json`** (strict superset;
+   applies whenever no config `protectedPaths` exists — and none does). The two
+   profile-auth entries were added in the review fix window (R8, commit `02b0853`):
+   both review lanes escalated the per-profile credential gap (work auth.json
+   holds bedrock creds) and the orchestrator upheld the addition.
 3. Config `protectedPaths` **replaces** the defaults, never merges (`index.ts#reloadState`:
    `loaded.keys.protectedPaths ?? DEFAULT_PROTECTED_PATHS`). Migrating the 13 verbatim
-   would *reduce* protection by dropping ssh/aws.
+   would *reduce* protection — the no-op verdict below is even stronger post-R8.
 
 **Verdict (orchestrator-approved): no config file.** At retirement, H2's file deletion
 completes the story: protection strictly rises (+`~/.ssh`, +`~/.aws`), zero gap window
@@ -114,18 +117,13 @@ profiles stay subscribed to future default additions.
 record, a future pi-user config at `<agentDir>/permissions.json` **is** watched
 (`watch.ts#watchedConfigFiles` includes `p.piUser`); hot-reload would cover it.
 
-**Known limitation → parking lot (orchestrator-directed):** the profile-auth gap. The
-default list's `~/.pi/agent/auth.json` entry does not cover `~/.pi/personal/auth.json` /
-`~/.pi/work/auth.json` (same gap zackify had). Verified against `safety.ts`: protected-path
-matching is exact/substring-prefix only (`command.includes(path)` for bash text;
-`targetPath === p || targetPath.startsWith(p + "/")` for path tools, after `~/` expansion) —
-**no glob support**, so a `~/.pi/*/auth.json` default entry would be inert. The fix is a
-CODE change (glob or `PI_CODING_AGENT_DIR`-aware auth-path expansion in `safety.ts`) —
-parking-lot candidate in `docs/pi-permissions-backlog.md`, deliberately NOT implemented in
-FS6 (prep-only). Interim manual workaround if ever wanted: per-profile
-`~/.pi/<profile>/permissions.json` listing all 17 paths — explicitly disrecommended
-(replace-semantics opts the profile out of future default additions; orchestrator
-rationale).
+**Known limitation → RESOLVED in the fix window:** the profile-auth gap closed via
+R8 (explicit `~/.pi/personal/auth.json` + `~/.pi/work/auth.json` defaults — matcher
+handles explicit entries natively; glob support remains absent and parked for OTHER
+agent dirs). Parking-lot sync line for the orchestrator (backlog copy):
+*"profile-auth floor gap CLOSED 2026-08-28 (R8, explicit defaults; review register R2/R8);
+REMAINING parked: glob support in protected-path matching + command-substitution/`..`-in-text
+normalization (pinned open in tests/safety.test.ts adversarial table)."*
 
 ---
 

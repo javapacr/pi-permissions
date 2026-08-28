@@ -6,6 +6,8 @@ Five fresh-context reviews (architect, security, performance, tester, devils-adv
 
 ## Register
 
+> **Fix-window outcome (2026-08-28, orchestrator-approved):** R2+R7, R8 → FIXED (`02b0853`); R6 → FIXED (`0d137f9`); R4 → FIXED (`74a3100`); R3 → FIXED (`5c11f3c`). 218/218 tests + typecheck clean. R1 stays runbook-mandatory (no code). R5 → **accepted-followup, post-rollout design decision** — parity-with-today: the current zackify+bridge stack has the same class of hole (model-writable config scopes with no protection; zackify gated no reads at all), so shipping does not regress; the follow-up designs floor-protection (write-side) for the six config scopes + `.pi/agents/`. R9/R10 stay parked.
+
 | ID | Sev | Source(s) | Finding | V | Triage |
 |---|---|---|---|---|---|
 | **R1** | **P0** | devils-advocate #1 | **Sandbox wrap-order kills every bash rule post-rollout.** pi dispatches `tool_call` sequentially over one shared event in packages order (runner.js `emitToolCall` — verified); pi-claude-sandbox (personal idx 20, work idx 22 — verified) mutates `input.command` to the sandbox-exec wrapper (verified at its wrap site; `enabled:true` globally — verified); `pi install` APPENDS pi-permissions after it; bash rules are anchored regexes → `Bash(git push --force *)` etc. silently stop matching. Today's bridge/zackify load BEFORE the sandbox (verified) — strict regression. Battery can't catch it (probe launches without sandbox). | V | **BLOCKER — runbook fix applied (§4.5 reorder + probe L); no code change needed. Optionally harden later: wrapper-tolerant matching (parked class).** |

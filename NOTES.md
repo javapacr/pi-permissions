@@ -736,3 +736,80 @@ a recommended push gate. Builder re-verified every P0/P1 claim against source be
 triage (runner dispatch order, packages indices, wrap site, safety.ts patterns, child
 branch exits, gateway fallback — all confirmed). Cleared by review: D4 parity, H3 no-op,
 status slots, before_agent_start coexistence, evaluator/ask/watch soundness.
+
+---
+
+# R-window build notes (review fixes, pre-push — charge ~/.pi/tmp/fs7-charge.md)
+
+Date: 2026-08-28 · Bounded window per orchestrator triage of the 5-angle review;
+rollout execution still user-deferred. Commits: `02b0853` (R2+R7+R8), `0d137f9`
+(R6), `74a3100` (R4), `5c11f3c` (R3). Tests 203 → **218**; typecheck clean.
+
+## R2+R7 (floor hardening + adversarial table) — safety.ts
+- `expandShellVars(command, home)`: static expansion of `$HOME`/`${HOME}`/`$USER`
+  (`basename(home)`), applied once at the top of the floor's bash branch —
+  env-indirection can no longer hide a protected path or a critical rm target.
+- `checkCriticalRmRf(command, home, cwd?)`: runs the pattern set against the raw
+  text AND a `--recursive`/`--force` → `-r`/`-f` normalized variant (long-flag
+  spellings); `resolveAbsoluteShellTarget` now `resolve()`s absolute targets
+  (`//etc`, `/etc/../etc` normalize) and resolves cwd-relative targets when cwd
+  is known (`rm -rf ../../../../..` reaching a critical dir blocks; project-local
+  relatives stay free). sudo-prefix recursion preserved.
+- Adversarial table (R7): every review-found form pinned as a DECISION — closed
+  (env indirection, long flags, normalization forms, relative-upward, straight
+  forms) AND open (command substitution `$(...)`; `..`-segments inside expanded
+  path-like text — `cat $USER/../u/.ssh` has no literal protected substring).
+  The open pins exist so an accidental matcher change shows up as a test diff.
+- Deviation from the review's minimal fix: also closed cwd-relative critical
+  deletes (listed by both security + tester as a 4th form; falls under the
+  charge's "path resolution before matching" + "further forms" latitude).
+
+## R8 (profile-auth defaults) — safety.ts
+- `~/.pi/personal/auth.json` + `~/.pi/work/auth.json` appended to
+  `DEFAULT_PROTECTED_PATHS` (17 entries). Matcher handles explicit entries
+  natively (verified by tests incl. read-gating); NO glob machinery added.
+- Docs synced: README defaults/limitations, hygiene.md H3 (17-set math, R8
+  note + the parking-lot sync line for the orchestrator's backlog copy).
+
+## R6 (unparsable-JSON issue) — loader.ts
+- `readScope` splits ENOENT (absent — normal) from unreadable/unparsable
+  (→ counted `RuleIssue` with file + message "…were NOT loaded"); other scopes
+  load unaffected; flows into the existing ⚠N status + 🩺 Invalid-specs
+  surface. Corrupt file still lists as a source (0 rules + its issue).
+- Tests: loader fixture `corrupt-scope.json` (rules drop, issue counted, others
+  load) + the fs5 factory invalid-JSON test extended to assert the ⚠ appears.
+
+## R4 (gateway fallback + persist refusal) — canonicalize.ts / ask.ts / types.ts
+- Gateway `tool`/`describe` with a bare name the registry cannot resolve for a
+  KNOWN server → `mcp__S` (family mcp) + `unresolved: true` marker (new optional
+  CanonicalTarget field) — server deny/ask rules now apply; unknown server
+  stays whole-tool `mcp` (nothing to attribute to).
+- `persistableSpec` refuses `spec === "mcp"` and `unresolved === true` — no
+  blanket whole-gateway or fallback-server "Always" persists (session allow
+  still applies; the existing unpersistable warning shows).
+
+## R3 (grandchild propagation) — index.ts
+- `allowAgentSpawn(input, target, cwd, inherited = mode)` — children call it
+  with `childMode` at every child-branch ALLOW exit (allow-rule, bypass,
+  acceptEdits edit/write, free-target, PS readOnlyBash); deny/ask/fail-close
+  exits never inject. Grandchildren now inherit through the chain with the
+  same override resolution (agentModes/frontmatter beat the child's mode);
+  model-written self-grants are overwritten child-side exactly like parent-side.
+- Tests: bypass-child spawn injects childMode; default-child + Agent-allow
+  injects the agentModes override and clobbers a model self-grant while
+  preserving foreign namespaces; acceptEdits-child spawn fail-closes with no
+  injection.
+
+## Process note (self-caught)
+The R3 commit initially landed with a typecheck failure masked by a
+`npm run typecheck | tail -1` pipe in my own verification chain (pipe exit code
+swallowed tsc's failure; tests were green). Caught one command later, fixed,
+amended (`5c11f3c`), and subsequent verification runs check tsc's exit status
+directly. Earlier window commits re-verified clean (silent tsc = pass).
+
+## Parking-lot sync line for the orchestrator (backlog copy)
+"profile-auth floor gap CLOSED 2026-08-28 (R8, explicit defaults; review register
+R2/R8 at proposes/review-findings.md). REMAINING parked: glob support in
+protected-path matching; command-substitution/`..`-in-text normalization (both
+pinned OPEN in tests/safety.test.ts); R5 config-self-modification protection =
+accepted follow-up (post-rollout design decision, parity-with-today noted)."
