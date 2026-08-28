@@ -354,8 +354,10 @@ Date: 2026-08-28 (system clock) · Charge: `~/.pi/tmp/fs4-charge.md`
     `.pi/agents`/`.agents` nearest-first walk up to home, then user
     `~/.agents` + `<agentDir>/agents`, then the shared npm-store
     pi-subagents `agents/` dir). Matches filename stem, frontmatter
-    `name:`, or `aliases:`; invalid mode values ignored; first hit in
-    precedence order wins. Approximates pi-subagents'
+    `name:`, or `aliases:`; invalid mode values ignored; the first
+    MATCHING file terminates the scan (a project match without a mode
+    shadows lower-precedence definitions — no leak); YAML-quoted values
+    parse. Oracle findings both fixed (see tests). Approximates pi-subagents'
     `findConfiguredProjectRoot` nearest-root default policy (documented
     divergence: git-root policy mode not mirrored).
   - `childAskReason` / `childModeReason`: fail-close reasons that name the

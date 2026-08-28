@@ -71,6 +71,37 @@ test("resolveChildMode: config agentModes beats frontmatter beats inherited", ()
   }
 });
 
+test("frontmatterAgentMode: shadowed lower-precedence definition cannot leak its mode (first MATCH terminates)", () => {
+  const dirX = mkdtempSync(join(tmpdir(), "piperm-ag-"));
+  const dirY = mkdtempSync(join(tmpdir(), "piperm-ag-"));
+  try {
+    writeFileSync(join(dirX, "worker.md"), `---\nname: worker\ndescription: project-local worker, no permission mode\n---\n`);
+    writeFileSync(join(dirY, "worker.md"), `---\nname: worker\ndescription: user-level worker\npermissionMode: default\n---\n`);
+    const base = { cwd: "/nonexistent-fs4", home: "/nonexistent-fs4", agentDir: "/nonexistent-fs4" };
+    assert.equal(
+      frontmatterAgentMode({ ...base, agentName: "worker", extraDirs: [dirX, dirY] }),
+      undefined,
+      "project match without a mode shadows the user definition (pi-subagents name resolution)",
+    );
+    // control: reversed order → the user-level mode DOES apply
+    assert.equal(frontmatterAgentMode({ ...base, agentName: "worker", extraDirs: [dirY, dirX] }), "default");
+  } finally {
+    rmSync(dirX, { recursive: true, force: true });
+    rmSync(dirY, { recursive: true, force: true });
+  }
+});
+
+test("frontmatterAgentMode: YAML-quoted permissionMode values parse", () => {
+  const dir = mkdtempSync(join(tmpdir(), "piperm-ag-"));
+  try {
+    writeFileSync(join(dir, "worker.md"), `---\nname: worker\npermissionMode: "acceptEdits"\n---\n`);
+    const base = { cwd: "/nonexistent-fs4", home: "/nonexistent-fs4", agentDir: "/nonexistent-fs4" };
+    assert.equal(frontmatterAgentMode({ ...base, agentName: "worker", extraDirs: [dir] }), "acceptEdits");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("frontmatterAgentMode: filename, frontmatter name, and alias matching; invalid values ignored; first dir wins", () => {
   const dirA = mkdtempSync(join(tmpdir(), "piperm-ag-"));
   const dirB = mkdtempSync(join(tmpdir(), "piperm-ag-"));

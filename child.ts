@@ -87,7 +87,12 @@ function parseFrontmatter(content: string): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const line of block.split("\n")) {
     const match = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
-    if (match) fields[match[1]!] = match[2]!.trim();
+    if (match) {
+      const value = match[2]!.trim();
+      // YAML-quoted scalars ("x" / 'x') — strip one matching layer.
+      const quoted = value.match(/^(["'])([\s\S]*)\1$/);
+      fields[match[1]!] = quoted ? quoted[2]!.trim() : value;
+    }
   }
   return fields;
 }
@@ -175,8 +180,10 @@ export function frontmatterAgentMode(input: AgentOverrideInput): PermissionMode 
         continue;
       }
       if (!fileMatchesAgent(filePath, content, input.agentName)) continue;
-      const mode = validModeOrUndefined(parseFrontmatter(content)["permissionMode"]);
-      if (mode) return mode;
+      // First MATCHING file terminates the scan (pi-subagents name
+      // resolution: a project definition shadows a user one) — its mode is
+      // authoritative, undefined included; lower-precedence files never leak.
+      return validModeOrUndefined(parseFrontmatter(content)["permissionMode"]);
     }
   }
   return undefined;
