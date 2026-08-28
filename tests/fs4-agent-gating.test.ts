@@ -216,3 +216,70 @@ test("AGENT deny beats allow (first-match discipline holds for spawns)", async (
     assert.equal(await h.toolCall("subagent", spawn("scout")), undefined);
   });
 });
+
+// ---------------------------------------------------------------------------
+// R3 (review window): children propagate their effective mode to grandchildren
+// — every child-branch ALLOW exit injects via the same channel; blocked/fail-
+// closed exits never inject. (Before: children spawned grandchildren with a
+// model-written or absent binding → fail-open bypass floor.)
+// ---------------------------------------------------------------------------
+
+const binding = (mode: string) =>
+  JSON.stringify({ "pi-permissions/1": { mode } });
+
+type Bindings = Record<string, { mode?: string } | undefined>;
+
+const ns = (input: Record<string, unknown>): { mode?: string } | undefined =>
+  ((input.extensionBindings as Bindings | undefined)?.[BINDINGS_NAMESPACE]);
+
+test("R3: bypass CHILD spawns grandchild → binding carries the child's effective mode", async () => {
+  await withHarness({
+    child: true,
+    env: { PI_SUBAGENT_EXTENSION_BINDINGS: binding("bypassPermissions") },
+  }, async (h) => {
+    await h.sessionStart();
+    const input = spawn("worker");
+    const verdict = await h.toolCall("subagent", input);
+    assert.equal(verdict, undefined, "bypass child allows the spawn");
+    assert.equal(ns(input)?.mode, "bypassPermissions",
+      "grandchild inherits the child's effective mode, not a model-written/absent binding");
+  });
+});
+
+test("R3: default CHILD + Agent allow rule → injection resolves override > child mode", async () => {
+  await withHarness({
+    child: true,
+    env: { PI_SUBAGENT_EXTENSION_BINDINGS: binding("default") },
+    projectConfig: {
+      permissions: { allow: ["Agent(worker)"] },
+      children: { agentModes: { worker: "production-support" } },
+    },
+  }, async (h) => {
+    await h.sessionStart();
+    const input = spawn("worker");
+    const verdict = await h.toolCall("subagent", input);
+    assert.equal(verdict, undefined, "Agent allow rule frees the spawn in a default child");
+    assert.equal(ns(input)?.mode, "production-support",
+      "grandchild gets the agentModes override, beating the child's default mode");
+    // Foreign namespaces the model wrote are still preserved untouched.
+    const foreign = spawn("worker", { extensionBindings: { "other/1": { x: 1 }, [BINDINGS_NAMESPACE]: { mode: "bypassPermissions" } } });
+    await h.toolCall("subagent", foreign);
+    assert.deepEqual((foreign.extensionBindings as Bindings)["other/1"], { x: 1 });
+    assert.equal(ns(foreign)?.mode, "production-support",
+      "the model's self-granted namespace is overwritten even in a child");
+  });
+});
+
+test("R3: child fail-closed spawn (acceptEdits baseline) blocks and injects nothing", async () => {
+  await withHarness({
+    child: true,
+    env: { PI_SUBAGENT_EXTENSION_BINDINGS: binding("acceptEdits") },
+  }, async (h) => {
+    await h.sessionStart();
+    const input = spawn("worker");
+    const verdict = await h.toolCall("subagent", input);
+    assert.equal(verdict?.block, true, "subagent is not Edit/Write/free — acceptEdits child fail-closes");
+    assert.match(verdict!.reason, /subagent sessions cannot prompt/);
+    assert.equal(input.extensionBindings, undefined, "no injection on a blocked exit");
+  });
+});

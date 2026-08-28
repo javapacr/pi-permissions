@@ -354,20 +354,25 @@ export default async function permissionExtension(pi: ExtensionAPI, deps: Extens
    * FS4 Agent(name) spawn support: after a `subagent` call is allowed, merge
    * the child's resolved mode snapshot into input.extensionBindings under our
    * namespace (config agentModes > agent frontmatter permissionMode > the
-   * parent's CURRENT mode — the D8 snapshot). Non-agent calls pass through
-   * untouched. Best-effort: a frozen input never breaks the spawn itself.
+   * spawning session's CURRENT effective mode — the D8 snapshot). Non-agent
+   * calls pass through untouched. Best-effort: a frozen input never breaks
+   * the spawn itself. R3 (review): children propagate their OWN effective
+   * mode (`inherited` param) so grandchildren inherit through the chain —
+   * previously children never injected, handing the grandchild a model-written
+   * (or absent) binding and the fail-open bypass floor.
    */
   const allowAgentSpawn = (
     input: Record<string, unknown> | undefined,
     target: CanonicalTarget,
     cwd: string,
+    inherited: PermissionMode = mode,
   ) => {
     if (target.family !== "agent") return;
     const childSpawnMode = resolveChildMode({
       agentName: target.agent,
       cwd,
       children: childrenKeys,
-      inherited: mode,
+      inherited,
       home,
       agentDir: getPiAgentDir(),
     });
@@ -407,13 +412,27 @@ export default async function permissionExtension(pi: ExtensionAPI, deps: Extens
       if (verdict.action === "ask") {
         return { block: true as const, reason: childAskReason(target, verdict.matchedRule, childMode) };
       }
-      if (verdict.action === "allow") return;
+      if (verdict.action === "allow") {
+        allowAgentSpawn(event.input, target, cwd, childMode);
+        return;
+      }
 
-      // No rule matched — the child mode's baseline decides.
-      if (childMode === "bypassPermissions") return;
-      if (childMode === "acceptEdits" && (target.tool === "Edit" || target.tool === "Write")) return;
-      if (isFreeTarget(target)) return;
+      // No rule matched — the child mode's baseline decides. R3: every allow
+      // exit injects the child's effective mode so grandchildren inherit.
+      if (childMode === "bypassPermissions") {
+        allowAgentSpawn(event.input, target, cwd, childMode);
+        return;
+      }
+      if (childMode === "acceptEdits" && (target.tool === "Edit" || target.tool === "Write")) {
+        allowAgentSpawn(event.input, target, cwd, childMode);
+        return;
+      }
+      if (isFreeTarget(target)) {
+        allowAgentSpawn(event.input, target, cwd, childMode);
+        return;
+      }
       if (childMode === "production-support" && target.family === "bash" && matchesReadOnlyBash(target.command ?? "")) {
+        allowAgentSpawn(event.input, target, cwd, childMode);
         return;
       }
       return { block: true as const, reason: childModeReason(target, childMode) };
