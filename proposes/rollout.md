@@ -54,6 +54,24 @@ hand-add — duplicates). Clone lands in the shared store
 `~/.pi/agent/git/github.com/javapacr/pi-permissions`. Future updates: commit+push in the
 monorepo repo, then re-run both installs (mempalace model).
 
+### 4.5 ⚠ MANDATORY — reorder packages so pi-permissions precedes pi-claude-sandbox
+
+**Review finding R1 (P0, verified):** pi dispatches `tool_call` hooks sequentially over one
+shared event in `packages` order; pi-claude-sandbox (currently personal idx 20 / work idx 22)
+mutates `input.command` into its sandbox-exec wrapper, and `pi install` appends pi-permissions
+AFTER it — every anchored bash rule (`Bash(git push --force *)` denies, the `Bash(git push *)`
+ask) would silently stop matching. Today's zackify+bridge load BEFORE the sandbox; without
+this reorder the rollout is a strict regression. In each profile's `settings.json`, move the
+`git:github.com/javapacr/pi-permissions` entry to **before** `git:github.com/javapacr/pi-claude-sandbox`
+(safe edit: the append-trap is about adds, not reorders). Verify:
+
+```sh
+python3 -c "import json; ps=json.load(open('$HOME/.pi/personal/settings.json'))['packages']; print(ps.index('git:github.com/javapacr/pi-permissions') < ps.index('git:github.com/javapacr/pi-claude-sandbox'))"
+# same for ~/.pi/work/settings.json — both must print True
+```
+
+Probe L in `probes/acceptance.md` validates order-insensitivity before you rely on it.
+
 ## 5. Retire zackify + bridge — SAME SITTING as §4
 
 ```sh
@@ -75,6 +93,13 @@ grep -n "zackify\|permissions-bridge" ~/.pi/personal/settings.json ~/.pi/work/se
 Leftovers that are inert by design: the bridge clone in the git store (unreferenced) and
 the npm-store zackify copy — leave them.
 
+**Rollback line** (if the sitting breaks between §4 and §5 — interim double-load = duplicate
+flags/prompts/status, fail-safe but disorienting): uninstall pi-permissions from both
+profiles (`PI_CODING_AGENT_DIR=<profile> pi uninstall git:github.com/javapacr/pi-permissions`)
+and reinstall zackify (`PI_CODING_AGENT_DIR=<profile> pi install npm:@zackify/pi-claude-permissions`)
+— the bridge entry was never removed until §5 completes, so only the zackify reinstall is
+needed if §5 partially ran.
+
 ## 6. Post-retirement hygiene + config swap
 
 | Item | Action | Source |
@@ -82,7 +107,7 @@ the npm-store zackify copy — leave them.
 | H1 | prune dead `mcp__plugin_context7…` rules — **in-place write only** (hardlink!) | `proposes/hygiene.md` H1 |
 | H2 | `rm ~/.pi/agent/extensions/permissions.json` | `proposes/hygiene.md` H2 |
 | H3 | nothing (no-op verdict) | `proposes/hygiene.md` H3 |
-| monorepo `.pi/settings.json` | swap the worker/oracle `subagentOnlyExtensions` dev-tree path → `/Users/reevonr/.pi/agent/git/github.com/javapacr/pi-permissions` (keeps child loading after install; refresh path stays stable) | diff below |
+| monorepo `.pi/settings.json` | swap the worker/oracle `subagentOnlyExtensions` dev-tree path → `/Users/reevonr/.pi/agent/git/github.com/javapacr/pi-permissions` (keeps child loading after install; refresh path stays stable). **Then verify both:** `git -C ~/.pi/agent/git/github.com/javapacr/pi-permissions rev-parse HEAD` equals the pushed sha (stale-clone check), and `grep -c pi-permissions .pi/settings.json` = 2 | diff below + R7 note |
 | bridge monorepo repo | mark `pi-claude-permissions-bridge/` dormant/retired in the registry (repo stays as history) | row edit below |
 | AGENTS.md | apply the registry row below + retire the zackify npm-list mention | row draft below |
 
@@ -103,7 +128,11 @@ and no shortcut-conflict warning**; status bar shows `⏵⏵⏵⏵ Bypass Permis
 `π Na·Nd·Nq` slot; `ctrl+shift+m` cycles (full order); `/permissions` renders picker +
 🩺 Diagnostics; one `bash git push --force origin main` blocked by the global deny
 `Bash(git push --force *)` (verified in the live file 2026-08-28) — or any deny present
-there — with rule+source in the reason. No tool-registration conflicts
+there — with rule+source in the reason; **one floor probe: "Read ~/.ssh/config" → `Blocked
+by safety floor: read of protected path ~/.ssh/config`** (the floor is the only gate under
+the D4 bypass startup default); and **one wrapped-command probe**: any `bash` call must be
+evaluated against its UNWRAPPED text (deny reasons name `Bash(git push --force *)`, not a
+`sandbox-exec …` wrapper) — this catches an R1 reorder miss instantly. No tool-registration conflicts
 (this extension registers no tools — hooks/commands/shortcut only; coexists with
 pi-patty-bg-tasks's `bash` by construction).
 

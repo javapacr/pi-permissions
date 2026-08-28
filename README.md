@@ -107,6 +107,8 @@ pi exposes MCP twice: **direct tools** (first-class tools named e.g. `mempalace_
 
 Rules live under `"permissions": { "allow": […], "deny": […], "ask": […] }` (top-level arrays tolerated). Claude and pi scopes are merged into **one rule set: union + dedupe, with deny-dominance** — *deny anywhere beats allow anywhere; ask beats allow; first-match within a list* (decision D7). Source order affects only display and persistence targeting, never evaluation.
 
+> **Shared-source coupling:** the claude-global scope is hot-reloaded live — an edit made by Claude Code itself (including its own "always allow" persistence) applies to your **running** pi sessions from the next tool call, and clears the session ask-cache. Direction is fail-safe (extra rules only), but the coupling is real.
+
 ### pi-scope config keys
 
 Pi scope files may additionally carry these root-level keys (merged per key in order user → project → local, later wins):

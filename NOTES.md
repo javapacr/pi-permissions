@@ -716,3 +716,23 @@ also confirmed every predicted grep string; findings F1–F8 all applied as one-
 
 `proposes/rollout.md` is the runbook. Gating order matters: probes pre-install, install +
 retire in one sitting, hygiene after retirement, probe-dir cleanup last.
+
+---
+
+# FS6 appendix — multi-agent review (2026-08-28)
+
+Five fresh-context reviews commissioned by the user post-FS6-prep (architect, security,
+performance, tester, devils-advocate); raw reports in `~/.pi/tmp/fs6-reviews/`; the
+synthesized, builder-verified register lives at **`proposes/review-findings.md`** (R1–R10).
+Headline: engine SHIPs (perf: SHIP outright, worst hot-path 14µs/call measured); the
+**rollout plan had one P0 (R1: sandbox wrap-order silently kills every bash rule —
+`pi install` appends us AFTER pi-claude-sandbox, whose mutation our anchored regexes then
+never match)** — mitigated entirely in the docs lane: rollout §4.5 mandatory reorder +
+acceptance probes I2 (floor) / I3 (wrap-order, both orders) + live spot-check additions +
+rollback line. Second P0 (R2: floor textual evasion — `$HOME` indirection, long-flag
+`rm --recursive --force`, `//etc` variants — zackify-parity, sole-layer tomorrow) plus
+R3–R6 need small CODE fixes → orchestrator/user decision (freeze); the register ends with
+a recommended push gate. Builder re-verified every P0/P1 claim against source before
+triage (runner dispatch order, packages indices, wrap site, safety.ts patterns, child
+branch exits, gateway fallback — all confirmed). Cleared by review: D4 parity, H3 no-op,
+status slots, before_agent_start coexistence, evaluator/ask/watch soundness.
