@@ -204,3 +204,129 @@ Date: 2026-08-28 (system clock; the research/backlog docs carry a misdated
   `rules/parse.ts` (parser home), `evaluator.ts` (charged), tests/fixtures/.
 - `tests/stubs.test.ts` split: FS1 modules assert implemented-exports;
   FS3 stubs (safety/ask/persist) keep throw-markers.
+
+---
+
+# FS2+FS3 build notes (modes engine + ask UX — one release)
+
+Date: 2026-08-28 (system clock) · Charge: `~/.pi/tmp/fs2-charge.md` ·
+Decisions addendum: `~/.pi/tmp/fs23-decisions.md`
+
+## What was built
+
+- `modes.ts` — rewritten to the 4-mode set (D1/D2/D4): `default`,
+  `acceptEdits`, `production-support` (🛡), `bypassPermissions`;
+  `SHIFT_TAB_ORDER`; `PRODUCTION_SUPPORT_MESSAGE` / `…ENDED_MESSAGE`
+  (investigation framing per D2); `normalizeMode`/`isValidMode`/`getModeMeta`.
+  Deleted: plan mode, custom modes + `CustomModePolicy`, custom-mode
+  enforcement helpers (network/write-roots/pattern machinery),
+  `normalizeShiftTabOptions`, `buildModeDefinitions`. Kept exports
+  `stringOrUndefined` / `stringArrayOrUndefined` (loader imports them).
+- `safety.ts` — FS3 always-on floor implemented on `CanonicalTarget`:
+  catastrophic patterns, critical `rm -rf` (verbatim zackify port, home
+  injectable), protected-path reference in bash text (absolute + `~` form),
+  and **read gating** — `family: "path"` targets (Read/Edit/Write, so
+  read/grep/find/ls via Read canonicalization) blocked under protectedPaths.
+  `DEFAULT_DANGEROUS/DEFAULT_CATASTROPHIC/DEFAULT_PROTECTED_PATHS` moved here
+  from loader.ts (only consumer). `describeBashRisk` labels the ask dialog.
+  Not overridable — `allowCatastrophic` died with the legacy reader.
+- `ask.ts` — single 5-option dialog (`Allow once / Allow for session /
+  Always / Deny / Deny for session`; esc → deny-once), `AskCache`
+  (allow/deny session sets, keyed `matchedRule?.spec ?? target.spec`),
+  headless fail-closed with the instructive reason (§F shape), "Always"
+  persistence with parse-validation and unpersistable-target warning.
+- `persist.ts` — atomic (tmp+rename) `permissions.allow` append to
+  `.pi/permissions.local.json` (D5) or `.claude/settings.local.json`
+  (`persistTarget: "claude-local"`); exact-string dedupe; sibling keys
+  preserved.
+- `evaluator.ts` — additive `EvaluateOptions.ignoreAllow` (production-support
+  never consults allow rules).
+- `loader.ts` — `loadZackifyCompatConfig` + `PermissionsConfig` /
+  `PiSettingsConfig` / `ZackifyCompatPaths` / `readJson` deleted; nothing
+  legacy remains.
+- `index.ts` — rewritten factory. `tool_call` pipeline: canonicalize →
+  safety floor → deny → ask → mode baseline → allow (matrix pinned in
+  `tests/modes-matrix.test.ts`). `session_start` (re)loads rules via
+  `loadRules({cwd})`, builds the registry once via
+  `buildDefaultMcpRegistry(ctx.cwd)`, builds the floor, reads
+  `productionSupport.readOnlyBash` + `persistTarget`, resolves mode
+  (flags > `defaultMode` > D4 bypass), status bar. Lazy reload guard in
+  `tool_call` for pre-session calls. Child baseline (`PI_SUBAGENT_CHILD=1`):
+  no status/shortcut/command registrations, flags+defaultMode ignored,
+  deny→block / ask→fail-closed with surface-to-parent reason / rest
+  auto-allowed. `before_agent_start` one-shot PS injection (entry +
+  session-start-in-mode) + ended message. `/permissions` + Shift+Tab kept
+  (non-child).
+- Tests: `tests/harness.ts` (hermetic factory harness — redirects HOME +
+  `PI_CODING_AGENT_DIR`, **explicitly deletes `PI_SUBAGENT_CHILD`**: this
+  builder process itself runs with it set), `modes-matrix.test.ts` (27),
+  `ask.test.ts` (16), `safety.test.ts` (9), `persist.test.ts` (6),
+  evaluator +1; modes/entrypoint/stubs updated; `legacy-loader.test.ts`
+  deleted with the reader.
+
+## Composition matrix (as tested)
+
+| Mode               | deny | ask   | allow          | unmatched non-free |
+|-------------------|------|-------|----------------|--------------------|
+| bypass            | block | PROMPT | pass (moot)   | pass               |
+| default           | block | prompt | pass          | prompt             |
+| acceptEdits       | block | prompt | pass          | Edit/Write pass; else prompt |
+| production-support| block | prompt | NOT consulted | prompt (readOnlyBash + free set exempt) |
+
+Free set (all non-bypass baselines): Read-class + `todo` +
+`ask_user_question` (decisions §B — prompting to approve a dialog is absurd
+UX; Claude Code parity).
+
+## Judgment calls beyond the decisions file
+
+1. **Persisted path specs use the `//` fs-root anchor**
+   (`Edit(//abs/path)`, `Read(//abs/path)`). Decisions §E said "Edit(path)"
+   generically, but FS1 paths semantics anchor single-`/` patterns at each
+   source scope's anchorDir (pi-local → cwd), so a plain absolute path would
+   compile to `<cwd>/abs/path` and NOT re-match the approved target. `//` is
+   the only form that deterministically re-matches. Write→Edit rewrite
+   applied as decided.
+2. **WebFetch without a hostname skips persistence** — no narrower rule than
+   whole-tool `WebFetch` exists (would allow every fetch); warn + session
+   allow applies.
+3. **"Always" under a matched ask rule is session-honest** (decisions §E
+   caveat, documented here as required): the persisted allow CANNOT override
+   the ask rule across sessions (deny > ask > allow is global); the session
+   cache honors the choice for the session. The user's ask rule is never
+   edited/removed.
+4. **`rm -rf /var/*` (globbed critical dir) is NOT floor-blocked** — the
+   zackify port matches exact critical dirs only (`/var` yes, `/var/*` no).
+   Faithful port; listed as a known limitation, not "fixed" silently.
+5. **sudo-prefix detection only fires when the base rm patterns miss** (e.g.
+   patterns that match only after stripping sudo); `sudo rm -rf /bin` is
+   caught by the base pattern without the prefix. Verbatim port behavior.
+6. **Session cache clears on mode change** (zackify `applyMode` parity) and
+   on `session_start`.
+7. **Ask dialog shows registry-truth MCP canonical names** (FS1 judgment
+   call 1): the real-world mempalace direct tool prompts as
+   `mcp__mempalace__mempalace_search` (raw name itself prefixed).
+
+## Deviations
+
+- None functional. Builder-side headless `-p` probes returned provider 500s
+  (both attempts) — the FS0-documented builder-sandbox model-call
+  limitation; harness-tab probes (orchestrator) are the accepted oracle.
+  The exact probe commands are in the builder's final report.
+- Test-count arithmetic vs. the "keep 76 green" bar: the FS1 rule-engine
+  tests all remain green; `legacy-loader.test.ts` (2 tests) was deleted
+  WITH the charged deletion of `loadZackifyCompatConfig` (tests of deleted
+  code); modes/stubs/entrypoint updated as the decisions file prescribed.
+  76 → 74 (deletion) → 136 (additions).
+
+## FS4 handoff
+
+- Child baseline already lives in `index.ts` (`isChild` branch): FS4 adds
+  mode inheritance via `input.extensionBindings` (snapshot at spawn),
+  `Agent(name)` spawn gating, per-agent `permissionMode` override, and the
+  `subagentOnlyExtensions` recipe — the fail-closed ask reason already
+  directs surface-to-parent.
+- `keys.children` is parsed and waiting (unused).
+- Rules reload per `session_start`; FS5 hot-reload should hook
+  `reloadState` (also rebuilds the registry).
+- "Always" appends to the live rule set via `onPersist` — no restart needed
+  for persisted rules within a session.

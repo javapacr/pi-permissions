@@ -202,3 +202,23 @@ test("PROPERTY: evaluation is deterministic for identical input", () => {
 	}
 	assert.ok(rand() >= 0);
 });
+
+// ---------------------------------------------------------------------------
+// FS2: ignoreAllow (production-support does not consult allow rules).
+// ---------------------------------------------------------------------------
+
+test("FS2 ignoreAllow: allow rules skipped, deny/ask unaffected", () => {
+	const r = rules(
+		["Bash(npm *)", "allow"],
+		["Bash(npm run *)", "ask"],
+		["Bash(rm *)", "deny"],
+	);
+	const npmRun = bashTarget("npm run build");
+	assert.equal(evaluate(r, npmRun).action, "ask", "ask beats allow normally");
+	assert.equal(evaluate(r, npmRun, { ignoreAllow: true }).action, "ask", "ask unaffected");
+	assert.equal(evaluate(r, bashTarget("npm why")).action, "allow");
+	assert.equal(evaluate(r, bashTarget("npm why"), { ignoreAllow: true }).action, "none", "allow skipped");
+	const rm = bashTarget("rm -rf build");
+	assert.equal(evaluate(r, rm).action, "deny");
+	assert.equal(evaluate(r, rm, { ignoreAllow: true }).action, "deny", "deny unaffected");
+});
