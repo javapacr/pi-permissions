@@ -1,42 +1,48 @@
 /**
- * pi-permissions — Claude-Code-parity permission engine for pi.
+ * Mode definitions (FS2, D1/D2/D4): the 4-mode set — plan mode deleted
+ * (stays with pi-plan-tools/plannotator); custom modes deleted with the
+ * zackify legacy config reader (no config surface carries them; D6 keys are
+ * defaultMode/protectedPaths/productionSupport/children/persistTarget —
+ * production-support's readOnlyBash covers the investigation use case).
  *
- * FS0 seed fork: mode skeleton extracted verbatim from
- * @zackify/pi-claude-permissions v1.0.6 (MIT, © 2026 Zach). See NOTICE for
- * attribution. The 4-mode rework (plan mode deleted) lands in FS2 per
- * docs/pi-permissions-backlog.md.
+ * Skeleton pieces (Shift+Tab cycling, mode labels/status) are ported from
+ * @zackify/pi-claude-permissions v1.0.6 (MIT, © 2026 Zach); see NOTICE.
  */
 
 export type PermissionMode = string;
-export type Pattern = { pattern: string; description: string };
-
-export interface CustomModePolicy {
-  excludedTools?: string[];
-  allowedWriteRoots?: Array<"cwd" | "parent" | string>;
-  blockedBashPatterns?: Pattern[];
-  network?: {
-    allowLocalhostOnly?: boolean;
-    allowGithubReadOnly?: boolean;
-    allowedPorts?: number[];
-  };
-}
 
 export interface ModeDefinition {
   id: PermissionMode;
   label: string;
   description: string;
   status: string;
-  policy?: CustomModePolicy;
 }
 
 export const DEFAULT_MODE: PermissionMode = "bypassPermissions";
 
 export const BUILT_IN_MODES: ModeDefinition[] = [
-  { id: "default", label: "Default", description: "Ask before write/edit/bash operations", status: "⏵" },
-  { id: "plan", label: "Plan", description: "Read-only exploration; only read/search tools and safe bash", status: "⏸" },
-  { id: "acceptEdits", label: "Accept Edits", description: "Allow write/edit silently, confirm bash", status: "⏵⏵" },
-  { id: "bypassPermissions", label: "Bypass Permissions", description: "Allow everything except catastrophic/protected operations", status: "⏵⏵⏵⏵" },
+  { id: "default", label: "Default", description: "Ask before non-read tools; reads free", status: "⏵" },
+  { id: "acceptEdits", label: "Accept Edits", description: "Allow write/edit silently; confirm the rest", status: "⏵⏵" },
+  { id: "production-support", label: "Production Support", description: "Investigation mode: reads + safelisted read-only bash free; everything else prompts", status: "🛡" },
+  { id: "bypassPermissions", label: "Bypass Permissions", description: "Allow everything except deny/ask rules and the safety floor", status: "⏵⏵⏵⏵" },
 ];
+
+/** Shift+Tab cycle order (D1): default → acceptEdits → production-support → bypass. */
+export const SHIFT_TAB_ORDER: PermissionMode[] = [
+  "default",
+  "acceptEdits",
+  "production-support",
+  "bypassPermissions",
+];
+
+/** D2 investigation framing, injected via before_agent_start on mode entry. */
+export const PRODUCTION_SUPPORT_MESSAGE = `[PRODUCTION SUPPORT MODE]
+Production environment — investigation mode. Reads are free; every bash/write/edit/MCP/webfetch call prompts for approval.
+
+Do not mutate anything without explicit approval. Prefer read-only commands (commands safelisted via productionSupport.readOnlyBash run freely). Report findings before acting.`;
+
+export const PRODUCTION_SUPPORT_ENDED_MESSAGE = `[PRODUCTION SUPPORT MODE ENDED]
+The user toggled out of production support mode. You may now proceed using the active permission mode.`;
 
 export function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -48,77 +54,16 @@ export function stringArrayOrUndefined(value: unknown): string[] | undefined {
   return strings.length > 0 ? strings : undefined;
 }
 
-export function buildModeDefinitions(customModes: unknown): ModeDefinition[] {
-  const modes = [...BUILT_IN_MODES];
-  if (!Array.isArray(customModes)) return modes;
-
-  for (const customMode of customModes) {
-    const mode = normalizeCustomMode(customMode);
-    if (!mode) continue;
-    const existing = modes.findIndex((candidate) => candidate.id === mode.id);
-    if (existing >= 0) modes[existing] = mode;
-    else modes.push(mode);
-  }
-
-  return modes;
+/** True when `mode` is one of the 4 built-in modes. */
+export function isValidMode(mode: unknown): mode is PermissionMode {
+  return typeof mode === "string" && BUILT_IN_MODES.some((m) => m.id === mode);
 }
 
-function normalizeCustomMode(value: unknown): ModeDefinition | undefined {
-  if (!value || typeof value !== "object") return;
-  const raw = value as Record<string, any>;
-  const id = stringOrUndefined(raw.id);
-  const label = stringOrUndefined(raw.label);
-  if (!id || !label) return;
-
-  return {
-    id,
-    label,
-    description: stringOrUndefined(raw.description) ?? label,
-    status: stringOrUndefined(raw.status) ?? "⏵",
-    policy: normalizeCustomModePolicy(raw.policy ?? raw),
-  };
+/** Unknown/absent mode → fallback (never throws; plan/custom modes are gone). */
+export function normalizeMode(mode: unknown, fallback: PermissionMode = DEFAULT_MODE): PermissionMode {
+  return isValidMode(mode) ? mode : fallback;
 }
 
-function normalizeCustomModePolicy(raw: Record<string, any>): CustomModePolicy | undefined {
-  const policy: CustomModePolicy = {};
-  if (Array.isArray(raw.excludedTools)) policy.excludedTools = raw.excludedTools.filter((tool: unknown): tool is string => typeof tool === "string");
-  if (Array.isArray(raw.allowedWriteRoots)) policy.allowedWriteRoots = raw.allowedWriteRoots.filter((root: unknown): root is string => typeof root === "string");
-  if (Array.isArray(raw.blockedBashPatterns)) {
-    policy.blockedBashPatterns = raw.blockedBashPatterns
-      .filter((pattern: unknown): pattern is Pattern => Boolean(pattern) && typeof pattern === "object" && typeof (pattern as Pattern).pattern === "string")
-      .map((pattern: Pattern) => ({ pattern: pattern.pattern, description: pattern.description ?? pattern.pattern }));
-  }
-  if (raw.network && typeof raw.network === "object") {
-    policy.network = {
-      allowLocalhostOnly: raw.network.allowLocalhostOnly === true,
-      allowGithubReadOnly: raw.network.allowGithubReadOnly === true,
-      allowedPorts: Array.isArray(raw.network.allowedPorts)
-        ? raw.network.allowedPorts.filter((port: unknown): port is number => Number.isInteger(port))
-        : undefined,
-    };
-  }
-  return Object.keys(policy).length > 0 ? policy : undefined;
-}
-
-export function normalizeMode(mode: unknown, fallback: PermissionMode = DEFAULT_MODE, modes: ModeDefinition[] = BUILT_IN_MODES): PermissionMode {
-  return parseMode(mode, modes) ?? fallback;
-}
-
-function parseMode(mode: unknown, modes: ModeDefinition[]): PermissionMode | undefined {
-  if (typeof mode !== "string") return;
-  if (modes.some((candidate) => candidate.id === mode)) return mode;
-}
-
-export function normalizeShiftTabOptions(options: unknown, allModes: ModeDefinition[]): PermissionMode[] {
-  if (!Array.isArray(options)) return allModes.map((mode) => mode.id);
-
-  const modes = options
-    .map((option) => parseMode(option, allModes))
-    .filter((mode): mode is PermissionMode => mode !== undefined)
-    .filter((mode, index, all) => all.indexOf(mode) === index);
-  return modes.length > 0 ? modes : allModes.map((mode) => mode.id);
-}
-
-export function getModeMeta(mode: PermissionMode, modes: ModeDefinition[]) {
-  return modes.find((m) => m.id === mode) ?? modes.find((m) => m.id === DEFAULT_MODE)!;
+export function getModeMeta(mode: PermissionMode): ModeDefinition {
+  return BUILT_IN_MODES.find((m) => m.id === mode) ?? BUILT_IN_MODES.find((m) => m.id === DEFAULT_MODE)!;
 }

@@ -9,13 +9,18 @@ test("entrypoint default-exports an extension factory function", () => {
   assert.equal(typeof extension, "function");
 });
 
-test("factory runs against a stub pi without touching real settings (FS1 rewiring smoke)", async () => {
-  // Redirect HOME so the legacy zackify reader inside the factory reads an
-  // empty temp home, not the real ~/.pi (hermetic smoke for the index→loader
-  // module rewiring; jiti/load behavior is proven by the harness probe).
+test("factory runs against a stub pi without reading real config (FS2 rewiring smoke)", async () => {
+  // The factory performs no file I/O at load time (rules load at
+  // session_start), but keep HOME redirected for hermeticity anyway.
+  // PI_SUBAGENT_CHILD is explicitly deleted: this process may itself be a
+  // subagent child, and the child baseline skips UI registrations.
   const fakeHome = mkdtempSync(join(tmpdir(), "piperm-factory-home-"));
   const previousHome = process.env.HOME;
+  const previousChild = process.env.PI_SUBAGENT_CHILD;
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.HOME = fakeHome;
+  delete process.env.PI_SUBAGENT_CHILD;
+  delete process.env.PI_CODING_AGENT_DIR;
   const previousCwd = process.cwd();
   try {
     const registrations: { flags: string[]; commands: string[]; shortcuts: string[]; events: string[] } = {
@@ -27,8 +32,6 @@ test("factory runs against a stub pi without touching real settings (FS1 rewirin
       registerCommand: (name: string) => registrations.commands.push(name),
       registerShortcut: (keys: string) => registrations.shortcuts.push(keys),
       on: (event: string) => registrations.events.push(event),
-      setActiveTools: (_tools: string[]) => undefined,
-      getActiveTools: () => ["bash"],
     };
     await extension(stubPi as never);
     assert.deepEqual(registrations.flags, ["permission-mode", "dangerously-skip-permissions"]);
@@ -38,6 +41,8 @@ test("factory runs against a stub pi without touching real settings (FS1 rewirin
   } finally {
     if (previousCwd !== process.cwd()) process.chdir(previousCwd);
     process.env.HOME = previousHome;
+    if (previousAgentDir !== undefined) process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    if (previousChild !== undefined) process.env.PI_SUBAGENT_CHILD = previousChild;
     rmSync(fakeHome, { recursive: true, force: true });
   }
 });

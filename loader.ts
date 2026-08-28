@@ -15,9 +15,8 @@
  * (defaultMode, protectedPaths, productionSupport, children, persistTarget) —
  * parsed and exposed, not acted on until FS2+.
  *
- * Also hosts the FS0 zackify-legacy config reader (`loadZackifyCompatConfig`),
- * moved verbatim out of index.ts so this module is the single config surface.
- * FS2 rewires the mode engine onto `loadRules()` and deletes the legacy path.
+ * Also hosted the FS0 zackify-legacy config reader until FS2 deleted it
+ * (the mode engine now loads through loadRules alone).
  *
  * All file paths injectable for tests; real defaults resolve at runtime.
  */
@@ -28,8 +27,7 @@ import { dirname, join, resolve } from "node:path";
 import type { LoadedConfig, ParsedRule, PiConfigKeys, PiScope, RuleAction, RuleIssue } from "./types.ts";
 import { parseRuleSpec } from "./rules/parse.ts";
 import { getPiAgentDir } from "./canonicalize.ts";
-import { stringArrayOrUndefined, stringOrUndefined } from "./modes.ts";
-import type { ModeDefinition, Pattern } from "./modes.ts";
+import { stringOrUndefined } from "./modes.ts";
 
 export type LoaderPaths = {
 	claudeProject?: string;
@@ -174,117 +172,4 @@ function mergeKeys(target: PiConfigKeys, incoming: PiConfigKeys) {
 	if (incoming.productionSupport !== undefined) target.productionSupport = incoming.productionSupport;
 	if (incoming.children !== undefined) target.children = incoming.children;
 	if (incoming.persistTarget !== undefined) target.persistTarget = incoming.persistTarget;
-}
-
-// ---------------------------------------------------------------------------
-// FS0 zackify-legacy config reader — moved verbatim from index.ts (same
-// paths, same precedence, same defaults) so loader.ts is the single config
-// surface. FS2 rewires the mode engine onto loadRules() and deletes this.
-// ---------------------------------------------------------------------------
-
-export interface PermissionsConfig {
-	mode?: string;
-	dangerousPatterns?: Pattern[];
-	catastrophicPatterns?: Pattern[];
-	protectedPaths?: string[];
-	allowCatastrophic?: boolean;
-	shiftTabOptions?: string[];
-	defaultMode?: string;
-	hideDefaultMode?: boolean;
-	planModeAllowedMcpServers?: string[];
-	customModes?: ModeDefinition[];
-}
-
-export interface PiSettingsConfig {
-	piClaudePermissions?: {
-		allowCatastrophic?: boolean;
-		shiftTabOptions?: string[];
-		defaultMode?: string;
-		hideDefaultMode?: boolean;
-		planModeAllowedMcpServers?: string[];
-		customModes?: ModeDefinition[];
-	};
-}
-
-export const DEFAULT_DANGEROUS: Pattern[] = [
-	{ pattern: "chmod -R 777", description: "insecure recursive permissions" },
-	{ pattern: "chown -R", description: "recursive ownership change" },
-	{ pattern: "> /dev/", description: "direct device write" },
-];
-
-export const DEFAULT_CATASTROPHIC: Pattern[] = [
-	{ pattern: "sudo mkfs", description: "sudo filesystem format" },
-	{ pattern: "mkfs.", description: "filesystem format" },
-	{ pattern: "dd if=", description: "raw disk write" },
-	{ pattern: ":(){ :|:& };:", description: "fork bomb" },
-	{ pattern: "> /dev/sda", description: "overwrite disk" },
-	{ pattern: "> /dev/nvme", description: "overwrite disk" },
-	{ pattern: "sudo dd", description: "sudo raw disk operation" },
-];
-
-export const DEFAULT_PROTECTED_PATHS = [
-	"~/.ssh", "~/.aws", "~/.gnupg", "~/.gpg", "~/.bashrc", "~/.bash_profile",
-	"~/.profile", "~/.zshrc", "~/.zprofile", "~/.config/git/credentials",
-	"~/.netrc", "~/.npmrc", "~/.docker/config.json", "~/.kube/config", "~/.pi/agent/auth.json",
-];
-
-export type ZackifyCompatPaths = {
-	globalPermissions?: string;
-	localPermissions?: string;
-	globalSettings?: string;
-	localSettings?: string;
-	home?: string;
-	cwd?: string;
-};
-
-/** FS0's `loadConfig()`, verbatim, with injectable paths. */
-export async function loadZackifyCompatConfig(paths?: ZackifyCompatPaths): Promise<PermissionsConfig> {
-	const home = paths?.home ?? homedir();
-	const cwd = resolve(paths?.cwd ?? process.cwd());
-	const globalPath = paths?.globalPermissions ?? resolve(home, ".pi/agent/extensions/permissions.json");
-	const localPath = paths?.localPermissions ?? resolve(cwd, ".pi/extensions/permissions.json");
-	const globalSettingsPath = paths?.globalSettings ?? resolve(home, ".pi/agent/settings.json");
-	const localSettingsPath = paths?.localSettings ?? resolve(cwd, ".pi/settings.json");
-	const global = await readJson<PermissionsConfig>(globalPath);
-	const local = await readJson<PermissionsConfig>(localPath);
-	const globalSettings = await readJson<PiSettingsConfig>(globalSettingsPath);
-	const localSettings = await readJson<PiSettingsConfig>(localSettingsPath);
-
-	return {
-		mode: stringOrUndefined(local.mode ?? global.mode),
-		dangerousPatterns: local.dangerousPatterns ?? global.dangerousPatterns ?? DEFAULT_DANGEROUS,
-		catastrophicPatterns: local.catastrophicPatterns ?? global.catastrophicPatterns ?? DEFAULT_CATASTROPHIC,
-		protectedPaths: local.protectedPaths ?? global.protectedPaths ?? DEFAULT_PROTECTED_PATHS,
-		allowCatastrophic: localSettings.piClaudePermissions?.allowCatastrophic
-			?? globalSettings.piClaudePermissions?.allowCatastrophic
-			?? false,
-		shiftTabOptions: localSettings.piClaudePermissions?.shiftTabOptions
-			?? globalSettings.piClaudePermissions?.shiftTabOptions
-			?? local.shiftTabOptions
-			?? global.shiftTabOptions,
-		defaultMode: stringOrUndefined(localSettings.piClaudePermissions?.defaultMode
-			?? globalSettings.piClaudePermissions?.defaultMode
-			?? local.defaultMode
-			?? global.defaultMode),
-		hideDefaultMode: localSettings.piClaudePermissions?.hideDefaultMode
-			?? globalSettings.piClaudePermissions?.hideDefaultMode
-			?? local.hideDefaultMode
-			?? global.hideDefaultMode,
-		planModeAllowedMcpServers: stringArrayOrUndefined(localSettings.piClaudePermissions?.planModeAllowedMcpServers)
-			?? stringArrayOrUndefined(globalSettings.piClaudePermissions?.planModeAllowedMcpServers)
-			?? stringArrayOrUndefined(local.planModeAllowedMcpServers)
-			?? stringArrayOrUndefined(global.planModeAllowedMcpServers),
-		customModes: localSettings.piClaudePermissions?.customModes
-			?? globalSettings.piClaudePermissions?.customModes
-			?? local.customModes
-			?? global.customModes,
-	};
-}
-
-async function readJson<T>(path: string): Promise<T | Record<string, never>> {
-	try {
-		return JSON.parse(await readFile(path, "utf-8"));
-	} catch {
-		return {};
-	}
 }

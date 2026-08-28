@@ -64,7 +64,7 @@ export type AskUiContext = {
   cwd?: string;
 };
 
-export type AskResult = { allow: true } | { block: true; reason: string };
+export type AskResult = { allow: true } | { allow: false; reason: string };
 
 export type ResolveAskOptions = {
   target: CanonicalTarget;
@@ -90,7 +90,7 @@ export async function resolveAsk(opts: ResolveAskOptions): Promise<AskResult> {
   const key = askKey(opts.target, opts.matchedRule);
   if (opts.cache.isAllowed(key)) return { allow: true };
   if (opts.cache.isDenied(key)) {
-    return { block: true, reason: `Denied for this session by user choice: ${key}` };
+    return { allow: false, reason: `Denied for this session by user choice: ${key}` };
   }
 
   const persistable = persistableSpec(opts.target, {
@@ -99,7 +99,7 @@ export async function resolveAsk(opts: ResolveAskOptions): Promise<AskResult> {
   });
 
   if (!opts.ctx.hasUI) {
-    return { block: true, reason: headlessReason(opts.target, opts.mode, persistable) };
+    return { allow: false, reason: headlessReason(opts.target, opts.mode, persistable) };
   }
 
   const choice = await opts.ctx.ui.select(dialogTitle(opts.target, {
@@ -140,11 +140,11 @@ export async function resolveAsk(opts: ResolveAskOptions): Promise<AskResult> {
 
     case "Deny for session":
       opts.cache.deny(key);
-      return { block: true, reason: `User denied ${opts.target.spec} (denied for this session)` };
+      return { allow: false, reason: `User denied ${opts.target.spec} (denied for this session)` };
 
     // "Deny", undefined (esc), and anything unexpected: deny this call only.
     default:
-      return { block: true, reason: `User denied ${opts.target.spec}` };
+      return { allow: false, reason: `User denied ${opts.target.spec}` };
   }
 }
 
