@@ -23,9 +23,11 @@ verified against live files + pi-permissions source unless marked otherwise.
 
 **Verified dead on the pi side:** no `context7` server exists in any mcp.json
 (`~/.pi/agent/mcp.json` = atlassian; `~/.pi/personal/mcp.json` + `~/.pi/work/mcp.json` =
-mempalace [+ atlassian]); pi never emits `mcp__…` tool names (direct tools are
-`<sanitized-server>_<raw>`, the gateway carries `input.tool/server`), and pi-permissions'
-registry canonicalization cannot revive a rule whose server is unregistered. Caveat before
+mempalace [+ atlassian]); under the current prefix-mode defaults pi never emits `mcp__…`
+tool names (direct tools are `<sanitized-server>_<raw>`, the gateway carries
+`input.tool/server` — only the adapter's unused `mcp` prefix mode would emit `mcp__…`
+wire names), and pi-permissions' registry canonicalization cannot revive a rule whose
+server is unregistered. Caveat before
 applying: this file is **shared with Claude Code itself** — if the context7 *plugin* is
 still installed there, the rules may be live on the Claude side. Quick check: run
 `/mcp` (or check plugins) in Claude Code; if context7 is absent, prune is safe for both.

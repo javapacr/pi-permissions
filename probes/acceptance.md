@@ -65,9 +65,11 @@ entry, `lazy` — deny blocks **before** any connection, so nothing actually spa
 pi-subagents), **zero load errors and NO shortcut-conflict warning** (FS5 pin — a
 reserved-key warning here means the ctrl+shift+m rebind regressed). Status bar:
 `⏵⏵⏵⏵ Bypass Permissions` (D4 default) and the rules slot
-`π 53a·13d·1q ⚠1` (53a·11d·1q from claude-global + 2 seeded denies + 1 seeded ask;
-`⚠1` = the invalid Write spec — if the global file drifted, assert the *relative* shape:
-+2d +1q +⚠1 over the pre-seed baseline).
+`π 53a·13d·1q ⚠1` — 53a·11d·1q from claude-global + the 2 seeded denies; the seeded
+ask `Bash(git push *)` is **byte-identical to the live global ask rule, so it dedupes**
+and q stays 1; `⚠1` = the invalid Write spec. If the global file drifted, assert the
+*relative* shape: **+2d +0q +⚠1** over the pre-seed baseline while that identity holds
+(it becomes +1q only if the global ask spec differs from the seed).
 
 ## 3. The battery
 
@@ -129,9 +131,10 @@ nothing announces rule changes to the model — application is strictly next-cal
 **H — /permissions + 🩺 Diagnostics (FS5 regression).**
 `/permissions` → title `Select permission mode  (cycle: ctrl+shift+m)`; 4 modes + trailing
 `🩺 Diagnostics (mode · rules · issues · children · hot-reload)`. Enter Diagnostics →
-sections `🧭 Mode` (origin line, e.g. `set by cycling`), `📜 Rules by source`
-(`.pi/permissions.json` group lists the seeded rules with `(+N more source)` where the
-global file dedupes), `⚠️ Invalid specs` (lists `Write(/tmp/never)` with its message),
+sections `🧭 Mode` (origin line, e.g. `set by ctrl+shift+m cycling`), `📜 Rules by source`
+(the two seeded denies render in the `.pi/permissions.json` group; the deduped
+`Bash(git push *)` ask renders in the **claude-global group** — dedupe attaches the later
+source to the earlier occurrence — carrying `(+1 more source)`), `⚠️ Invalid specs` (lists `Write(/tmp/never)` with its message),
 `👥 Children (subagents)`, `🔁 Hot-reload` (watched dirs, last load). esc walks back/out.
 
 **I — child deny probe (FS4 regression).**

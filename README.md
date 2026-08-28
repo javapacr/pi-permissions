@@ -39,7 +39,7 @@ pi 0.84.3 binds `shift+tab` natively (`app.thinking.cycle`) and places it on the
 
 ### Mode resolution at startup
 
-`--permission-mode <mode>` flag > `--dangerously-skip-permissions` (forces bypass) > `defaultMode` config key > hard default `bypassPermissions`. There is **no persistence across restarts** — a deliberate choice (predictable sessions; pin with `defaultMode` when wanted). Changing mode clears the session ask-cache.
+`--dangerously-skip-permissions` (forces bypass) > `--permission-mode <mode>` flag > `defaultMode` config key > hard default `bypassPermissions` (both flags are checked in that order; when both are passed, bypass wins). There is **no persistence across restarts** — a deliberate choice (predictable sessions; pin with `defaultMode` when wanted). Changing mode clears the session ask-cache.
 
 ### production-support specifics
 
@@ -73,7 +73,7 @@ Rules are Claude-format strings in `allow` / `deny` / `ask` lists. Evaluation is
 | `~/…` | home directory |
 | `/…` | the scope's anchor dir (claude-project/local → project root; claude-global/pi-user → home; pi-project/local → cwd) |
 | `./…` | cwd |
-| `bare/path` | any depth (matches at any position) |
+| `bare/path` | any depth for **deny/ask** rules and single bare names (no `/`); cwd-anchored for multi-segment **allow** rules (e.g. `Edit(src/**)`) |
 
 `*` = one segment, `**` = any depth; a trailing `/**` (or bare `/`) also matches the named root itself. Deny/ask path rules get any-depth matching for cwd-relative patterns with a leading literal segment (Claude's depth asymmetry — a secret pattern must not be escaped by running from a subdirectory).
 
@@ -91,8 +91,8 @@ Edit is the governing row for file *mutation*; Read rules guard *reading*:
 pi exposes MCP twice: **direct tools** (first-class tools named e.g. `mempalace_search`) and the **gateway tool** (`mcp` with `input.tool`/`input.server`). Both canonicalize to the same name — `mcp__<server>__<raw tool name>` — via a registry built from your `mcp.json` configs + the pi-mcp-adapter cache. So **one rule covers both surfaces**:
 
 - `deny: ["mcp__mempalace__mempalace_search"]` blocks the direct tool *and* the gateway call `{server: "mempalace", tool: "mempalace_search"}`.
-- Gateway meta actions: `connect` / `instructions` / server-list → `mcp__<server>`; `search` without a server filter, server-less auth actions, `status` → the whole gateway tool (matched by bare `mcp` rules and deny-`*`).
-- Unregistered direct tools fall back to a name-split heuristic (verifiable in diagnostics).
+- Gateway meta actions: `connect` / `instructions` / a bare `server` input → `mcp__<server>`; `search` without a server filter, server-less auth actions, server-less list/`status` → the whole gateway tool (matched by bare `mcp` rules and deny-`*`).
+- Unregistered direct tools fall back to a name-split heuristic (visible in the ask-dialog title, which always shows the canonical name).
 
 ## Configuration — six scopes, one merged rule set
 
@@ -151,7 +151,7 @@ Children have no TUI, so they can never prompt. Policy (decision D8):
 
   Deny rules block with the normal rule+source reason — in every child mode, including inherited bypass.
 - **Per-agent overrides keep workers usable** while the parent investigates: pin `worker` to `bypassPermissions` via `children.agentModes` or frontmatter `permissionMode: bypassPermissions`; rules still apply (deny survives the override).
-- **Parent-side `Agent(name)` gating**: the parent's hook evaluates the spawn itself — deny blocks the spawn, ask prompts the parent, allowed spawns carry the mode injection. Bare `Agent` rules (deny/ask only) govern the whole tool.
+- **Parent-side `Agent(name)` gating**: the parent's hook evaluates the spawn itself — deny blocks the spawn, ask prompts the parent, allowed spawns carry the mode injection. Bare `Agent` rules govern the whole subagent tool (valid under any action, including allow).
 - **Perf-opted children** (`extensions: []` agent overrides) load the engine child-only via pi-subagents' `subagentOnlyExtensions`:
 
   ```jsonc

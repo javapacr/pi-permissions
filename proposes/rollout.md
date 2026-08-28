@@ -101,8 +101,9 @@ Monorepo `.pi/settings.json` — proposed diff (both occurrences):
 Fresh pi session in any dir: startup banner lists `pi-permissions` with **no load errors
 and no shortcut-conflict warning**; status bar shows `⏵⏵⏵⏵ Bypass Permissions` + the
 `π Na·Nd·Nq` slot; `ctrl+shift+m` cycles (full order); `/permissions` renders picker +
-🩺 Diagnostics; one `bash curl --version` blocked by the global deny (if the live global
-file still carries it) — or any deny — with rule+source. No tool-registration conflicts
+🩺 Diagnostics; one `bash git push --force origin main` blocked by the global deny
+`Bash(git push --force *)` (verified in the live file 2026-08-28) — or any deny present
+there — with rule+source in the reason. No tool-registration conflicts
 (this extension registers no tools — hooks/commands/shortcut only; coexists with
 pi-patty-bg-tasks's `bash` by construction).
 

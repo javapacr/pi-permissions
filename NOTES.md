@@ -698,8 +698,12 @@ nothing outside this repo.
 4. **acceptance.sh scope**: setup/teardown/status only — the battery's core is
    interactive-TUI evidence (protocol: JSONL grep is not an oracle), which cannot be
    scripted honestly. The sh refuses to clobber existing seed files.
-5. **Counts assertions are relative** (`+2d +1q +⚠1` over baseline) — the live
-   claude-global file (53a·11d·1q today) can drift between now and execution.
+5. **Counts assertions are relative** — the live claude-global file (53a·11d·1q today,
+ask = exactly `Bash(git push *)`, verified) can drift between now and execution. The
+seeded ask dedupes against the identical global ask rule, so the startup delta is
+**+2d +0q +⚠1** while that identity holds (+1q only if the global ask spec differs).
+Fresh-context reviewer F1 corrected an earlier +1q here (its loader-validated audit
+also confirmed every predicted grep string; findings F1–F8 all applied as one-liners).
 
 ## Deviations
 
