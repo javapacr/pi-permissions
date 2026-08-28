@@ -101,11 +101,30 @@ async function readScope(
 	scopeSpec: ScopeSpec,
 	ctx: { home: string; cwd: string },
 ): Promise<{ rules: ParsedRule[]; issues: RuleIssue[]; keys?: PiConfigKeys } | null> {
+	let text: string;
+	try {
+		text = await readFile(scopeSpec.file, "utf-8");
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		if (code === "ENOENT") return null; // absent scope — the normal case
+		// R6 (review): unreadable ≠ absent — surface it, never silently drop.
+		return {
+			rules: [],
+			issues: [{ spec: "<scope>", action: "allow", file: scopeSpec.file, message: `unreadable (${code ?? "error"}) — rules from this file were NOT loaded` }],
+		};
+	}
 	let raw: unknown;
 	try {
-		raw = JSON.parse(await readFile(scopeSpec.file, "utf-8"));
-	} catch {
-		return null; // missing or unparsable — absent scope
+		raw = JSON.parse(text);
+	} catch (err) {
+		// R6 (review): unparsable JSON used to be indistinguishable from a
+		// missing file — every rule in the scope (including denies) silently
+		// vanished. Now it counts as an issue: ⚠N in the status slot + the
+		// 🩺 Invalid-specs section, while the OTHER scopes still load.
+		return {
+			rules: [],
+			issues: [{ spec: "<scope>", action: "allow", file: scopeSpec.file, message: `unparsable JSON (${err instanceof Error ? err.message : String(err)}) — rules from this file were NOT loaded` }],
+		};
 	}
 	if (!raw || typeof raw !== "object") return null;
 	const root = raw as Record<string, unknown>;

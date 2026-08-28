@@ -91,3 +91,24 @@ test("loader never reads real paths when given injected ones", async () => {
 	});
 	assert.deepEqual(loaded, { rules: [], issues: [], sources: [], keys: {} });
 });
+
+// ---------------------------------------------------------------------------
+// R6 (review window): a corrupted scope file is an ISSUE, never a silent
+// scope loss — other scopes still load, ⚠N + 🩺 surface the file.
+// ---------------------------------------------------------------------------
+
+test("R6: unparsable scope JSON surfaces as an issue and other scopes still load", async () => {
+	const loaded = await loadRules({ ...paths, claudeProject: fixture("corrupt-scope.json") });
+	// claude-project's 3 valid rules are gone (treated as absent), but every
+	// other scope still contributes: 10 - 3 = 7 rules.
+	assert.equal(loaded.rules.length, 7);
+	// Two issues: the fixture's pre-existing invalid Write spec moved? No —
+	// that spec lived in claude-project, which no longer parses. Exactly one
+	// issue: the corrupt scope itself.
+	assert.equal(loaded.issues.length, 1);
+	assert.equal(loaded.issues[0]!.file, fixture("corrupt-scope.json"));
+	assert.match(loaded.issues[0]!.message, /unparsable JSON/);
+	assert.match(loaded.issues[0]!.message, /NOT loaded/);
+	// The scope is still listed as a source (it exists and was read).
+	assert.ok(loaded.sources.some((s) => s.file === fixture("corrupt-scope.json") && s.scope === "claude-project"));
+});

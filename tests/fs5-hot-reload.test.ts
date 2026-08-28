@@ -225,6 +225,9 @@ test("HOT: invalid JSON mid-write does not crash (scope degrades to absent)", as
     h.write(".pi/permissions.json", "{ not json [[[ ");
     fireWrite(h, ".pi/permissions.json");
     assert.equal(await h.toolCall("bash", bash("echo hi")), undefined, "unparsable file = absent scope, deny gone, no crash");
+    // R6: the silent drop is now VISIBLE — the ⚠ count appears in the rules slot.
+    const lastRules = [...h.statuses].reverse().find((s) => s.key === "permissions-rules");
+    assert.ok(lastRules?.text?.includes("⚠"), `expected ⚠ in rules status, got: ${lastRules?.text}`);
   });
 });
 
