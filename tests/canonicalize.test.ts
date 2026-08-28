@@ -141,3 +141,24 @@ test("sanitizeServerPrefix matches the adapter's implementation", () => {
 	assert.equal(sanitizeServerPrefix("foo.bar"), "foo_2e_bar");
 	assert.equal(sanitizeServerPrefix("x"), "x");
 });
+
+// ---------------------------------------------------------------------------
+// R4 (review window): bare gateway tool name not in the registry for a KNOWN
+// server → attributed to the server (mcp__S, family mcp) with the unresolved
+// marker; unknown server stays whole-tool.
+// ---------------------------------------------------------------------------
+
+test("R4: gateway bare-name miss on a known server falls back to mcp__S (unresolved)", () => {
+	const t = canon("mcp", { server: "mempalace", tool: "no_such_tool" });
+	assert.equal(t.spec, "mcp__mempalace");
+	assert.equal(t.family, "mcp");
+	assert.equal(t.unresolved, true, "must be marked so persistence refuses it");
+	// describe path behaves the same
+	const d = canon("mcp", { server: "mempalace", describe: "no_such_tool" });
+	assert.equal(d.spec, "mcp__mempalace");
+	assert.equal(d.unresolved, true);
+	// Unknown server stays whole-tool (nothing to attribute to)
+	const ghost = canon("mcp", { server: "ghost", tool: "x" });
+	assert.deepEqual([ghost.family, ghost.tool], ["other", "mcp"]);
+	assert.notEqual(ghost.unresolved, true);
+});

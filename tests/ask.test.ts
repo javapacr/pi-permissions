@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { persistableSpec } from "../ask.ts";
 import { withHarness } from "./harness.ts";
 
 const bash = (command: string) => ({ command });
@@ -237,4 +238,20 @@ test("DIALOG non-bash targets use the 🔒 icon and canonical spec", async () =>
     assert.equal(verdict?.block, true);
     assert.match(h.dialogs[0]!.title, /🔒 WebFetch\(domain:api\.example\.com\)/);
   });
+});
+
+// ---------------------------------------------------------------------------
+// R4 (review window): whole-gateway `mcp` and unresolved-server fallback
+// approvals are session-only — persistence refused (no sound narrower rule).
+// ---------------------------------------------------------------------------
+
+test("R4: persistableSpec refuses whole-tool mcp and unresolved fallbacks", () => {
+	const C = { home: "/home/u", cwd: "/proj" };
+	const whole = { spec: "mcp", family: "other" as const, tool: "mcp", piTool: "mcp" };
+	assert.equal(persistableSpec(whole, C), undefined, "whole-gateway mcp must not persist");
+	const fallback = { spec: "mcp__mempalace", family: "mcp" as const, tool: "mcp__mempalace", piTool: "mcp", unresolved: true };
+	assert.equal(persistableSpec(fallback, C), undefined, "registry-unresolved fallback must not persist");
+	// A real (rule-matched or registry-resolved) server-level target still persists.
+	const real = { spec: "mcp__mempalace", family: "mcp" as const, tool: "mcp__mempalace", piTool: "mcp" };
+	assert.equal(persistableSpec(real, C), "mcp__mempalace");
 });

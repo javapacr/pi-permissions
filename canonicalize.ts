@@ -287,23 +287,25 @@ function canonicalizeGateway(input: Record<string, unknown>, registry?: McpRegis
 	const unresolved = (): CanonicalTarget => ({
 		spec: "mcp", family: "other", tool: "mcp", piTool: "mcp",
 	});
+	/** R4 (review): a bare tool name that the registry cannot resolve for a
+	 * KNOWN server still attributes to that server (so `mcp__S` deny/ask rules
+	 * apply) — marked unresolved so "Always" will not persist it. */
+	const unresolvedServerTool = (name: string): CanonicalTarget => ({
+		...asServer(name), unresolved: true,
+	});
+	const resolveToolish = (name: string, server: string | undefined, registry2?: McpRegistry): CanonicalTarget => {
+		const canonical = resolveGatewayToolName(name, server, registry2);
+		if (canonical) return { spec: canonical, family: "mcp", tool: canonical, piTool: "mcp" };
+		if (server && registry2?.rawTools.has(server)) return unresolvedServerTool(server);
+		return unresolved();
+	};
 
 	// action: auth-start / auth-complete / ui-messages (server-scoped when present)
 	if (action !== undefined) return server ? asServer(server) : unresolved();
 
-	if (tool !== undefined) {
-		const canonical = resolveGatewayToolName(tool, server, registry);
-		return canonical
-			? { spec: canonical, family: "mcp", tool: canonical, piTool: "mcp" }
-			: unresolved();
-	}
+	if (tool !== undefined) return resolveToolish(tool, server, registry);
 	if (connect !== undefined) return asServer(connect);
-	if (describe !== undefined) {
-		const canonical = resolveGatewayToolName(describe, server, registry);
-		return canonical
-			? { spec: canonical, family: "mcp", tool: canonical, piTool: "mcp" }
-			: unresolved();
-	}
+	if (describe !== undefined) return resolveToolish(describe, server, registry);
 	if (instructions !== undefined) return asServer(instructions);
 	if (search !== undefined) return server ? asServer(server) : unresolved();
 	if (server !== undefined) return asServer(server);

@@ -90,6 +90,10 @@ export type CanonicalTarget = {
 	hostname?: string;
 	/** family "agent": the agent name from input.agent. */
 	agent?: string;
+	/** R4 (review): gateway call attributed to a server only by fallback (bare
+	 * tool name not in the registry) — narrower than a real tool-level match,
+	 * so "Always" persistence must refuse it. */
+	unresolved?: boolean;
 };
 
 /** Evaluator verdict. */

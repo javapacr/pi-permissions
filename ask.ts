@@ -175,6 +175,10 @@ export function persistableSpec(
   target: CanonicalTarget,
   ctx: { home: string; cwd: string },
 ): string | undefined {
+  // R4 (review): whole-gateway `mcp` and registry-unresolved server fallbacks
+  // have no sound narrower rule — persisting would blanket-allow every future
+  // gateway call (or a whole server) from one approval. Session allow still applies.
+  if (target.spec === "mcp" || target.unresolved === true) return undefined;
   let candidate: string | undefined;
   if (target.family === "path" && target.path !== undefined) {
     const tool = target.tool === "Write" ? "Edit" : target.tool;
