@@ -1,11 +1,12 @@
 {
   "name": "pi-permissions",
   "version": "0.1.0",
-  "description": "Claude-Code-parity permission engine for pi: rule grammar, 4 modes, dual-source config, child enforcement. FS0 seed fork of @zackify/pi-claude-permissions v1.0.6 with the pi-claude-permissions-bridge engine grafted as reference.",
+  "description": "Claude-Code-parity permission engine for pi: rule grammar (bash/path/webfetch globs, MCP dual-surface canonicalization, Agent gating), 4 modes, dual-source Claude+pi config with hot-reload, single-ask UX, read-gated safety floor, pi-subagents child enforcement.",
   "keywords": [
     "pi-package",
     "pi",
-    "permissions"
+    "permissions",
+    "claude-code"
   ],
   "license": "MIT",
   "private": true,

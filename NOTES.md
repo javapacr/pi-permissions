@@ -631,3 +631,84 @@ Date: 2026-08-28 (system clock) · Charge: `~/.pi/tmp/fs5-charge.md`
 - EMFILE note for the probe: the harness tab runs unsandboxed, so real
   watchers work there; if a probe profile ever runs under a sandbox, expect
   the error-dirty fallback to make hot-reload still-pass-but-noisy.
+
+---
+
+# FS6 build notes (rollout PREPARATION — repo-side only)
+
+Date: 2026-08-28 (system clock) · Charge: `~/.pi/tmp/fs6-charge.md` · Execution
+(push/install/retire/hygiene) DEFERRED BY USER — this FS prepared everything, applied
+nothing outside this repo.
+
+## What was prepared
+
+- **README.md** — full user-facing rewrite (the seed README was a stub): modes +
+  composition matrix + ctrl+shift+m story, complete rule-grammar spec table, path-anchor
+  table, Read/Edit/Write matrix, MCP canonical form, six-scope config + pi keys (incl.
+  protectedPaths **replace** semantics), ask UX incl. session-honest "Always under ask"
+  caveat + headless fail-close, child policy (D8 chain + recipe + exact fail-close
+  string), status slots / hot-reload / diagnostics, safety floor (defaults listed,
+  known limitations), install ×2, dev. Every behavioral claim traced to source read this
+  session (index/modes/ask/safety/loader/watch/diagnostics/child).
+- **probes/acceptance.md** — the consolidated FS6 battery (script of record; fs4-style):
+  startup evidence (incl. the no-shortcut-warning pin), bypass+deny, ask-once-per-rule +
+  session cache, PS (injection + all-prompt + readOnlyBash + ignoreAllow via live
+  `Bash(echo *)`), MCP one-rule-both-surfaces (deny precedes execution → lazy mempalace
+  never connects), persistence format (`Edit(//abs)`), hot-reload add/remove + count
+  ticks, diagnostics sections, child deny probe, optional headless spot-check. Setup/
+  teardown scripted in **probes/acceptance.sh** (seed/teardown/status; refuses to clobber
+  existing seeds). Predicted startup counts `π 53a·13d·1q ⚠1` documented with the
+  drift caveat (relative-shape assertion).
+- **proposes/hygiene.md** — H1 dead `mcp__plugin_context7…` rules (diff + the HARDLINK
+  trap: same inode 23013846 across `~/.config/claude` ↔ `~/.claude`; in-place-write
+  recipe; Claude-Code-side liveness caveat); H2 `planModeAllowedTools` located in
+  `~/.pi/agent/extensions/permissions.json`, unused, whole-file deletion AT retirement
+  (timing-coupled: zackify live-reads protectedPaths until then); H3 protectedPaths
+  **no-op verdict** (orchestrator Option A, intercom 2026-08-28: defaults 15 ⊇ live 13
+  [+ ~/.ssh, ~/.aws]; config replaces; migrating would REDUCE protection) + watch.ts
+  cross-check (pi-user scope already watched) + profile-auth parking-lot note; H4
+  probe-dir credential checklist (auth.json = 3 live providers; auth.kimi-only.json
+  backup; whole-dir `rm -rf` at probe-profile retirement).
+- **proposes/rollout.md** — the orchestrator command sequence: preconditions → push
+  (dual-account workarounds) → acceptance GATE → install ×2 (auto-add note; store path)
+  → retire zackify+bridge SAME SITTING (order rationale: interim double-load =
+  double-prompt bug, not a checkpoint) → hygiene table + monorepo `.pi/settings.json`
+  dev-tree→git-store path diff → post-install live spot-check → probe retirement.
+  Includes the **AGENTS.md registry-row draft** + concurrent-edit suggestions
+  (zackify npm-list drop, bridge-row retire note, cleanup-list additions).
+- **package.json** — description rewritten user-facing (was FS0-history), keywords +
+  `claude-code`. Name/version/repository already matched sibling convention (verified
+  against pi-tool-prompt/pi-mempalace/pi-env-loader/pi-handoff: https form, `0.1.0`).
+
+## Judgment calls / decisions
+
+1. **protectedPaths migration → no-op** (orchestrator-approved Option A over intercom;
+   rationale on record in proposes/hygiene.md H3). The charge's presumed "convert +
+   propose target file" was executed as a verified no-op with evidence — the alternative
+   (13-entry migration) would have silently dropped `~/.ssh`/`~/.aws`.
+2. **Glob support verified absent** (orchestrator's parking-lot question): safety.ts
+   bash-text matching = `includes()`, path matching = exact/prefix after `~/` expansion →
+   a `~/.pi/*/auth.json` default would be inert; the profile-auth fix is a CODE change.
+   Recorded in H3 + here; **orchestrator to copy the parking-lot line into
+   `docs/pi-permissions-backlog.md`** (builder may not edit monorepo docs per charge).
+3. **MCP probe design**: deny-probes only (blocked calls never reach the lazy server);
+   probe mcp.json = verbatim mempalace static entry from `~/.pi/personal/mcp.json`;
+   adapter loaded via `-e ~/.pi/agent/npm/node_modules/pi-subagents`-style path so BOTH
+   surfaces exist in the probe session.
+4. **acceptance.sh scope**: setup/teardown/status only — the battery's core is
+   interactive-TUI evidence (protocol: JSONL grep is not an oracle), which cannot be
+   scripted honestly. The sh refuses to clobber existing seed files.
+5. **Counts assertions are relative** (`+2d +1q +⚠1` over baseline) — the live
+   claude-global file (53a·11d·1q today) can drift between now and execution.
+
+## Deviations
+
+- None functional; no code paths touched (203 tests untouched — docs/proposals only,
+  plus package.json metadata). Per charge, nothing outside `pi-permissions/` was edited;
+  monorepo-level artifacts (backlog parking-lot line, AGENTS.md row, `.pi/settings.json`
+  swap) are PROPOSED in proposes/ for the orchestrator to apply.
+
+## Handoff to execution (user-signal-gated)
+
+`proposes/rollout.md` is the runbook. Gating order matters: probes pre-install, install +
+retire in one sitting, hygiene after retirement, probe-dir cleanup last.
