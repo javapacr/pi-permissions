@@ -1,7 +1,11 @@
 /**
  * pi-permissions — Claude-Code-parity permission engine for pi.
  *
- * FS2+FS3: modes engine + ask UX. Skeleton pieces (flags, Shift+Tab cycling,
+ * FS4: pi-subagents enforcement — child mode inheritance (D8 snapshot via
+ * input.extensionBindings → PI_SUBAGENT_EXTENSION_BINDINGS, Step-0-verified),
+ * per-agent permissionMode overrides, Agent(name) spawn gating in the parent,
+ * and the mode-aware child baseline (prompt decisions fail closed with a
+ * surface-to-parent reason). FS2+FS3: modes engine + ask UX. Skeleton pieces (flags, Shift+Tab cycling,
  * /permissions dialog, status bar) ported from @zackify/pi-claude-permissions
  * v1.0.6 (MIT, © 2026 Zach — see NOTICE); enforcement is the FS1 rule engine
  * (canonicalize → evaluate) composed with the 4-mode baselines, the always-on
@@ -31,11 +35,19 @@ import {
 } from "./modes.ts";
 import type { PermissionMode } from "./modes.ts";
 import { loadRules } from "./loader.ts";
-import { buildDefaultMcpRegistry, canonicalize } from "./canonicalize.ts";
+import { buildDefaultMcpRegistry, canonicalize, getPiAgentDir } from "./canonicalize.ts";
 import { evaluate } from "./evaluator.ts";
 import type { EvaluateOptions } from "./evaluator.ts";
 import { DEFAULT_PROTECTED_PATHS, makeSafetyFloor } from "./safety.ts";
 import { AskCache, resolveAsk } from "./ask.ts";
+import {
+  CHILD_AGENT_ENV,
+  childAskReason,
+  childModeReason,
+  injectModeBinding,
+  readInheritedMode,
+  resolveChildMode,
+} from "./child.ts";
 import { matchBashRule } from "./rules/bash.ts";
 import { parseRuleSpec } from "./rules/parse.ts";
 
@@ -63,6 +75,14 @@ export default async function permissionExtension(pi: ExtensionAPI) {
   const home = homedir();
   const isChild = process.env.PI_SUBAGENT_CHILD === "1";
 
+  // FS4 child-side inheritance inputs, read once at load (snapshot at child
+  // startup — never live-tracked). The parent's tool_call hook injected the
+  // mode snapshot via input.extensionBindings; pi-subagents carried it into
+  // this process's env (Step-0-verified channel).
+  const inheritedMode = isChild ? readInheritedMode() : undefined;
+  const childAgentName = isChild ? (process.env[CHILD_AGENT_ENV]?.trim() || undefined) : undefined;
+  let childMode: PermissionMode = "bypassPermissions"; // floor until resolved
+
   // Session state — loaded at session_start (lazy fallback in tool_call).
   let rules: ParsedRule[] = [];
   let rulesLoaded = false;
@@ -70,6 +90,7 @@ export default async function permissionExtension(pi: ExtensionAPI) {
   let evaluateOpts: EvaluateOptions = {};
   let readOnlyBash: string[] = [];
   let persistTarget: string | undefined;
+  let childrenKeys: Record<string, unknown> | undefined;
 
   let mode: PermissionMode = DEFAULT_MODE;
   const cache = new AskCache();
@@ -87,6 +108,7 @@ export default async function permissionExtension(pi: ExtensionAPI) {
     evaluateOpts = { checkSafety: makeSafetyFloor({ home, protectedPaths, cwd }) };
     readOnlyBash = loaded.keys.productionSupport?.readOnlyBash ?? [];
     persistTarget = loaded.keys.persistTarget;
+    childrenKeys = loaded.keys.children;
     return loaded;
   };
 
@@ -141,6 +163,19 @@ export default async function permissionExtension(pi: ExtensionAPI) {
           mode = normalizeMode(loaded.keys.defaultMode, DEFAULT_MODE);
         }
       }
+    } else {
+      // FS4 (D8): children resolve their mode once at startup — per-agent
+      // override (children.agentModes config > agent-definition frontmatter
+      // permissionMode) beats the inherited snapshot, which beats the
+      // rules-on-bypass floor. Flags/defaultMode stay ignored in children.
+      childMode = resolveChildMode({
+        agentName: childAgentName,
+        cwd,
+        children: loaded.keys.children,
+        inherited: inheritedMode,
+        home,
+        agentDir: getPiAgentDir(),
+      });
     }
 
     psInjectionPending = !isChild && mode === "production-support";
@@ -232,6 +267,30 @@ export default async function permissionExtension(pi: ExtensionAPI) {
     return result.allow ? undefined : { block: true as const, reason: result.reason };
   };
 
+  /**
+   * FS4 Agent(name) spawn support: after a `subagent` call is allowed, merge
+   * the child's resolved mode snapshot into input.extensionBindings under our
+   * namespace (config agentModes > agent frontmatter permissionMode > the
+   * parent's CURRENT mode — the D8 snapshot). Non-agent calls pass through
+   * untouched. Best-effort: a frozen input never breaks the spawn itself.
+   */
+  const allowAgentSpawn = (
+    input: Record<string, unknown> | undefined,
+    target: CanonicalTarget,
+    cwd: string,
+  ) => {
+    if (target.family !== "agent") return;
+    const childSpawnMode = resolveChildMode({
+      agentName: target.agent,
+      cwd,
+      children: childrenKeys,
+      inherited: mode,
+      home,
+      agentDir: getPiAgentDir(),
+    });
+    injectModeBinding(input, childSpawnMode);
+  };
+
   pi.on("tool_call", async (event, ctx) => {
     const cwd = resolve(ctx.cwd ?? process.cwd());
     if (!rulesLoaded) await reloadState(cwd); // defensive: call before session_start
@@ -239,20 +298,29 @@ export default async function permissionExtension(pi: ExtensionAPI) {
     const target = canonicalize(event.toolName, event.input, { cwd, home, registry });
 
     if (isChild) {
-      // Child baseline (rules-on-bypass): deny + safety + ask-as-fail-closed,
-      // everything else auto-allowed. FS4 completes inheritance.
-      const verdict = evaluate(rules, target, evaluateOpts);
+      // FS4 child baseline: the inherited (or overridden) mode's baseline
+      // applies verbatim; every decision that would prompt in the parent
+      // fail-closes with a surface-to-parent reason (children have no TUI).
+      const verdict = evaluate(rules, target, {
+        ...evaluateOpts,
+        ignoreAllow: childMode === "production-support",
+      });
       if (verdict.action === "deny") {
         return { block: true as const, reason: verdict.safetyReason ?? denyReason(verdict) };
       }
       if (verdict.action === "ask") {
-        return {
-          block: true as const,
-          reason: `Permission required: ${target.spec} (ask rule ${verdict.matchedRule?.spec ?? "?"}; `
-            + `subagent sessions cannot prompt). Surface this request to the parent session in your final result.`,
-        };
+        return { block: true as const, reason: childAskReason(target, verdict.matchedRule, childMode) };
       }
-      return; // allow / none → auto-allowed
+      if (verdict.action === "allow") return;
+
+      // No rule matched — the child mode's baseline decides.
+      if (childMode === "bypassPermissions") return;
+      if (childMode === "acceptEdits" && (target.tool === "Edit" || target.tool === "Write")) return;
+      if (isFreeTarget(target)) return;
+      if (childMode === "production-support" && target.family === "bash" && matchesReadOnlyBash(target.command ?? "")) {
+        return;
+      }
+      return { block: true as const, reason: childModeReason(target, childMode) };
     }
 
     const verdict = evaluate(rules, target, {
@@ -264,17 +332,34 @@ export default async function permissionExtension(pi: ExtensionAPI) {
       return { block: true as const, reason: verdict.safetyReason ?? denyReason(verdict) };
     }
     if (verdict.action === "ask") {
-      return askDecision(target, verdict.matchedRule, ctx);
+      const asked = await askDecision(target, verdict.matchedRule, ctx);
+      if (!asked) allowAgentSpawn(event.input, target, cwd);
+      return asked;
     }
-    if (verdict.action === "allow") return;
-
-    // No rule matched — the mode baseline decides.
-    if (mode === "bypassPermissions") return;
-    if (mode === "acceptEdits" && (target.tool === "Edit" || target.tool === "Write")) return;
-    if (isFreeTarget(target)) return;
-    if (mode === "production-support" && target.family === "bash" && matchesReadOnlyBash(target.command ?? "")) {
+    if (verdict.action === "allow") {
+      allowAgentSpawn(event.input, target, cwd);
       return;
     }
-    return askDecision(target, undefined, ctx);
+
+    // No rule matched — the mode baseline decides.
+    if (mode === "bypassPermissions") {
+      allowAgentSpawn(event.input, target, cwd);
+      return;
+    }
+    if (mode === "acceptEdits" && (target.tool === "Edit" || target.tool === "Write")) {
+      allowAgentSpawn(event.input, target, cwd);
+      return;
+    }
+    if (isFreeTarget(target)) {
+      allowAgentSpawn(event.input, target, cwd);
+      return;
+    }
+    if (mode === "production-support" && target.family === "bash" && matchesReadOnlyBash(target.command ?? "")) {
+      allowAgentSpawn(event.input, target, cwd);
+      return;
+    }
+    const asked = await askDecision(target, undefined, ctx);
+    if (!asked) allowAgentSpawn(event.input, target, cwd);
+    return asked;
   });
 }
