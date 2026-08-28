@@ -8,9 +8,10 @@
  * Every test must `dispose()` in finally (env + temp dirs restored).
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type { FSWatcher, WatchListener } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import extension from "../index.ts";
 
 export type Dialog = { title: string; options: string[] };
@@ -30,6 +31,8 @@ export type HarnessOptions = {
   child?: boolean;
   /** Extra env vars for the boot (FS4: PI_SUBAGENT_EXTENSION_BINDINGS, PI_SUBAGENT_CHILD_AGENT). */
   env?: Record<string, string>;
+  /** Fake fs.watch — FS5 hot-reload tests fire events deterministically. */
+  fakeWatch?: boolean;
 };
 
 export function boot(opts: HarnessOptions = {}) {
@@ -67,6 +70,7 @@ export function boot(opts: HarnessOptions = {}) {
   for (const [key, value] of Object.entries(opts.env ?? {})) process.env[key] = value;
 
   const dialogs: Dialog[] = [];
+  const fakeWatch = opts.fakeWatch ? makeFakeWatch() : undefined;
   const notifications: Notification[] = [];
   const statuses: Status[] = [];
   const choices: string[] = [];
@@ -116,7 +120,7 @@ export function boot(opts: HarnessOptions = {}) {
   const makeCtx = (hasUI: boolean) => ({ ui, hasUI, cwd });
 
   let booted: Promise<void> | undefined;
-  const ensureBooted = () => (booted ??= extension(stubPi as never));
+  const ensureBooted = () => (booted ??= extension(stubPi as never, fakeWatch ? { watchFn: fakeWatch.fn } : {}));
 
   let seq = 0;
   return {
@@ -151,14 +155,28 @@ export function boot(opts: HarnessOptions = {}) {
     },
     cycleMode: async () => {
       await ensureBooted();
-      await shortcutHandlers.get("shift+tab")!(makeCtx(true));
+      await shortcutHandlers.get("ctrl+shift+m")!(makeCtx(true));
     },
-    permissionsCommand: async () => {
+    /** Write a file under cwd (mid-session config mutation for FS5 tests). */
+    write: (rel: string, content: string) => {
+      const target = join(cwd, rel);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, content);
+    },
+    permissionsCommand: async (hasUI = true) => {
       await ensureBooted();
-      await commandHandlers.get("permissions")!([], makeCtx(true));
+      await commandHandlers.get("permissions")!([], makeCtx(hasUI));
     },
 
+    /** Fire a fake watcher event on a directory (fakeWatch boots only). */
+    fireWatchEvent: (dir: string, filename: string | null) => {
+      if (!fakeWatch) throw new Error("fireWatchEvent requires fakeWatch: true");
+      fakeWatch.fire(dir, filename);
+    },
+    fakeWatchHandles: fakeWatch?.handles,
+
     dispose: () => {
+      handlers.get("session_shutdown")?.({}, { ui, hasUI: false, cwd });
       for (const [key, value] of Object.entries(savedEnv)) {
         if (value !== undefined) process.env[key] = value;
         else delete process.env[key];
@@ -171,6 +189,50 @@ export function boot(opts: HarnessOptions = {}) {
 }
 
 export type Harness = ReturnType<typeof boot>;
+
+/** Fake fs.watch handle + trigger surface for deterministic FS5 tests. */
+export type FakeWatchHandle = {
+  file: string;
+  listener: WatchListener<string>;
+  closed: boolean;
+  onError?: (err: Error) => void;
+  error(err: Error): void;
+  close(): void;
+  on(event: string, cb: (err: Error) => void): void;
+};
+
+export function makeFakeWatch() {
+  const handles: FakeWatchHandle[] = [];
+  const fn = (file: string, listener: WatchListener<string>): FSWatcher => {
+    // Faithful to node:fs — watch() throws for nonexistent paths (the
+    // ConfigWatcher catches and skips; re-sync retries later).
+    if (!existsSync(file)) throw Object.assign(new Error(`ENOENT: no such file or directory, watch '${file}'`), { code: "ENOENT" });
+    const handle: FakeWatchHandle = {
+      file,
+      listener,
+      closed: false,
+      error(err: Error) {
+        handle.onError?.(err);
+      },
+      close() {
+        handle.closed = true;
+      },
+      on(_event: string, cb: (err: Error) => void) {
+        handle.onError = cb;
+      },
+    };
+    handles.push(handle);
+    return handle as never;
+  };
+  const fire = (dir: string, filename: string | null) => {
+    for (const handle of handles) {
+      if (!handle.closed && (handle.file === dir || handle.file === `${dir}/`)) {
+        handle.listener("rename", filename);
+      }
+    }
+  };
+  return { fn, handles, fire };
+}
 
 /** try/finally wrapper so env never leaks between tests. */
 export async function withHarness(

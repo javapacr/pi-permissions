@@ -36,8 +36,15 @@ test("factory runs against a stub pi without reading real config (FS2 rewiring s
     await extension(stubPi as never);
     assert.deepEqual(registrations.flags, ["permission-mode", "dangerously-skip-permissions"]);
     assert.ok(registrations.commands.includes("permissions"));
-    assert.ok(registrations.shortcuts.includes("shift+tab"));
-    assert.deepEqual(registrations.events.sort(), ["before_agent_start", "session_start", "tool_call"]);
+    // FS5: pi 0.84.3 reserves shift+tab (app.thinking.cycle) and drops
+    // extension bindings on it — the cycle key is ctrl+shift+m (free in the
+    // builtin map; see README "Keyboard shortcut").
+    assert.ok(registrations.shortcuts.includes("ctrl+shift+m"));
+    assert.ok(!registrations.shortcuts.includes("shift+tab"));
+    assert.deepEqual(
+      registrations.events.sort(),
+      ["before_agent_start", "session_shutdown", "session_start", "tool_call"],
+    );
   } finally {
     if (previousCwd !== process.cwd()) process.chdir(previousCwd);
     process.env.HOME = previousHome;

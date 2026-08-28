@@ -35,6 +35,15 @@ import {
 } from "./modes.ts";
 import type { PermissionMode } from "./modes.ts";
 import { loadRules } from "./loader.ts";
+import type { LoadedConfig } from "./types.ts";
+import { ConfigWatcher, watchedConfigFiles } from "./watch.ts";
+import type { WatchFn } from "./watch.ts";
+import {
+  diagnosticsSections,
+  renderAll,
+  rulesStatusText,
+} from "./diagnostics.ts";
+import type { DiagnosticsState, ModeOrigin } from "./diagnostics.ts";
 import { buildDefaultMcpRegistry, canonicalize, getPiAgentDir } from "./canonicalize.ts";
 import { evaluate } from "./evaluator.ts";
 import type { EvaluateOptions } from "./evaluator.ts";
@@ -60,7 +69,13 @@ type UiContext = {
 /** Free by nature in every non-bypass baseline (no side effects to gate). */
 const FREE_PI_TOOLS = new Set(["todo", "ask_user_question"]);
 
-export default async function permissionExtension(pi: ExtensionAPI) {
+/** Optional production-identical injection points (tests pass fakes). */
+export type ExtensionDeps = {
+  /** fs.watch replacement — hermetic tests drive events deterministically. */
+  watchFn?: WatchFn;
+};
+
+export default async function permissionExtension(pi: ExtensionAPI, deps: ExtensionDeps = {}) {
   pi.registerFlag("permission-mode", {
     description: "Permission mode (default, acceptEdits, production-support, bypassPermissions)",
     type: "string",
@@ -83,16 +98,23 @@ export default async function permissionExtension(pi: ExtensionAPI) {
   const childAgentName = isChild ? (process.env[CHILD_AGENT_ENV]?.trim() || undefined) : undefined;
   let childMode: PermissionMode = "bypassPermissions"; // floor until resolved
 
-  // Session state — loaded at session_start (lazy fallback in tool_call).
+  // Session state — loaded at session_start (lazy fallback in tool_call);
+  // FS5 hot-reload re-loads on the next tool call after any watched
+  // rule/config/registry file changes (children run without a watcher —
+  // per-spawn processes read fresh state at startup, mode snapshot fixed).
   let rules: ParsedRule[] = [];
   let rulesLoaded = false;
+  let lastLoaded: LoadedConfig | undefined;
   let registry: McpRegistry | undefined;
   let evaluateOpts: EvaluateOptions = {};
   let readOnlyBash: string[] = [];
   let persistTarget: string | undefined;
   let childrenKeys: Record<string, unknown> | undefined;
+  const watcher = new ConfigWatcher(deps.watchFn);
+  let lastLoadTime = new Date(0).toISOString();
 
   let mode: PermissionMode = DEFAULT_MODE;
+  let modeOrigin: ModeOrigin = "hard-default";
   const cache = new AskCache();
   let psInjectionPending = false;
   let psEndedPending = false;
@@ -101,6 +123,8 @@ export default async function permissionExtension(pi: ExtensionAPI) {
     const loaded = await loadRules({ cwd });
     rules = loaded.rules;
     rulesLoaded = true;
+    lastLoaded = loaded;
+    lastLoadTime = new Date().toISOString();
     registry = buildDefaultMcpRegistry(cwd);
     const protectedPaths = (loaded.keys.protectedPaths ?? DEFAULT_PROTECTED_PATHS).map((path) =>
       path.startsWith("~/") ? resolve(home, path.slice(2)) : resolve(path),
@@ -113,13 +137,19 @@ export default async function permissionExtension(pi: ExtensionAPI) {
   };
 
   const updateStatus = (ctx: UiContext) => {
+    // Rule counts first, mode second — the mode entry stays the LAST status
+    // write (existing consumers assert on it; counts are a separate footer slot).
+    if (lastLoaded) {
+      ctx.ui.setStatus("permissions-rules", rulesStatusText(lastLoaded.rules, lastLoaded.issues));
+    }
     const meta = getModeMeta(mode);
     ctx.ui.setStatus("permissions", `${meta.status} ${meta.label}`);
   };
 
-  const applyMode = (nextMode: PermissionMode, ctx: UiContext) => {
+  const applyMode = (nextMode: PermissionMode, ctx: UiContext, origin: ModeOrigin = "shortcut") => {
     const wasPS = mode === "production-support";
     mode = nextMode;
+    modeOrigin = origin;
     cache.clear();
 
     if (nextMode === "production-support" && !wasPS) {
@@ -148,12 +178,16 @@ export default async function permissionExtension(pi: ExtensionAPI) {
       // restarts; D4 hard default bypassPermissions, defaultMode honored).
       if (pi.getFlag("dangerously-skip-permissions") === true) {
         mode = "bypassPermissions";
+        modeOrigin = "flag";
       } else {
         const flagMode = pi.getFlag("permission-mode");
         if (typeof flagMode === "string" && flagMode) {
-          if (isValidMode(flagMode)) mode = flagMode;
-          else {
+          if (isValidMode(flagMode)) {
+            mode = flagMode;
+            modeOrigin = "flag";
+          } else {
             mode = normalizeMode(loaded.keys.defaultMode, DEFAULT_MODE);
+            modeOrigin = loaded.keys.defaultMode && mode === loaded.keys.defaultMode ? "config" : "hard-default";
             ctx.ui.notify(
               `Unknown --permission-mode "${flagMode}" — using ${getModeMeta(mode).label}`,
               "warning",
@@ -161,6 +195,7 @@ export default async function permissionExtension(pi: ExtensionAPI) {
           }
         } else {
           mode = normalizeMode(loaded.keys.defaultMode, DEFAULT_MODE);
+          modeOrigin = loaded.keys.defaultMode && mode === loaded.keys.defaultMode ? "config" : "hard-default";
         }
       }
     } else {
@@ -179,11 +214,24 @@ export default async function permissionExtension(pi: ExtensionAPI) {
     }
 
     psInjectionPending = !isChild && mode === "production-support";
-    if (!isChild) updateStatus(ctx);
+    if (!isChild) {
+      // FS5: watch all six rule/config scopes + the MCP registry inputs;
+      // changes mark the watcher dirty and apply from the next tool call.
+      watcher.sync(watchedConfigFiles(cwd));
+      updateStatus(ctx);
+    }
+  });
+
+  pi.on("session_shutdown", async () => {
+    watcher.stop();
   });
 
   if (!isChild) {
-    pi.registerShortcut("shift+tab", {
+    // FS5: pi 0.84.3 reserves shift+tab (app.thinking.cycle) and drops
+    // extension bindings for it (RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS
+    // — the FS4 startup warning). ctrl+shift+m is free in the builtin map;
+    // mnemonic: "mode". See README "Keyboard shortcut".
+    pi.registerShortcut("ctrl+shift+m", {
       description: `Cycle permission mode (${SHIFT_TAB_ORDER.map((id) => getModeMeta(id).label).join(" → ")})`,
       handler: async (ctx) => {
         const idx = SHIFT_TAB_ORDER.indexOf(mode);
@@ -192,20 +240,55 @@ export default async function permissionExtension(pi: ExtensionAPI) {
     });
 
     pi.registerCommand("permissions", {
-      description: "Select permission mode",
+      description: "Select permission mode / view permission diagnostics",
       handler: async (_args, ctx) => {
         if (!ctx.hasUI) {
           ctx.ui.notify("/permissions requires interactive UI", "warning");
           return;
         }
 
-        const options = BUILT_IN_MODES.map((m) => `${m.label} — ${m.description}`);
-        const selected = await ctx.ui.select("Select permission mode", options);
+        const options = [
+          ...BUILT_IN_MODES.map((m) => `${m.label} — ${m.description}`),
+          "🩺 Diagnostics (mode · rules · issues · children · hot-reload)",
+        ];
+        const selected = await ctx.ui.select("Select permission mode  (cycle: ctrl+shift+m)", options);
         const idx = selected ? options.indexOf(selected) : -1;
-        if (idx >= 0) applyMode(BUILT_IN_MODES[idx]!.id, ctx);
+        if (idx >= 0 && idx < BUILT_IN_MODES.length) {
+          applyMode(BUILT_IN_MODES[idx]!.id, ctx, "picker");
+          return;
+        }
+        if (selected && idx >= BUILT_IN_MODES.length) {
+          await showDiagnostics(ctx);
+        }
       },
     });
   }
+
+  /** FS5 diagnostics view: paged ui.select navigation (esc = back). */
+  const showDiagnostics = async (ctx: UiContext) => {
+    const sections = diagnosticsSections(diagnosticsState());
+    for (;;) {
+      const sectionTitles = ["📄 All", ...sections.map((s) => s.title)];
+      const choice = await ctx.ui.select("Permission diagnostics  (esc = close)", sectionTitles);
+      if (!choice) return; // esc / cancel
+      const lines = choice === "📄 All" ? renderAll(diagnosticsState()) : (sections.find((s) => s.title === choice)?.lines ?? []);
+      // Each line becomes an inert option — selection falls through to the
+      // section picker; esc anywhere exits the view.
+      await ctx.ui.select(`${choice}  (esc = back)`, lines.length > 0 ? lines : ["(empty)"]);
+    }
+  };
+
+  const diagnosticsState = (): DiagnosticsState => ({
+    mode,
+    modeOrigin,
+    rules: lastLoaded?.rules ?? rules,
+    issues: lastLoaded?.issues ?? [],
+    sources: lastLoaded?.sources ?? [],
+    childrenKeys,
+    watchedDirs: watcher.watchedDirs,
+    reloadPending: watcher.isDirty(),
+    loadedAt: lastLoadTime,
+  });
 
   pi.on("before_agent_start", async () => {
     if (psInjectionPending) {
@@ -294,6 +377,19 @@ export default async function permissionExtension(pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const cwd = resolve(ctx.cwd ?? process.cwd());
     if (!rulesLoaded) await reloadState(cwd); // defensive: call before session_start
+
+    // FS5 hot-reload: a watched rule/config/registry file changed since the
+    // last call — re-read everything (also rebuilds the MCP registry), clear
+    // the session ask-cache (a removed rule must not keep honoring old
+    // approvals), re-sync watchers (picks up directories created since the
+    // last sync), and refresh the status-bar rule counts.
+    if (!isChild && watcher.isDirty()) {
+      watcher.clearDirty();
+      await reloadState(cwd);
+      cache.clear();
+      watcher.sync(watchedConfigFiles(cwd));
+      updateStatus(ctx);
+    }
 
     const target = canonicalize(event.toolName, event.input, { cwd, home, registry });
 

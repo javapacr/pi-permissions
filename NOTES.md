@@ -505,3 +505,129 @@ to the same array — handler-order caveat in judgment call 4.
 - FS6 rollout: install replaces the absolute dev-tree path in the
   monorepo settings with the git-install ref; the probe profile
   (`packages: []`) keeps working via `-e`.
+
+---
+
+# FS5 build notes (hot-reload + diagnostics + Shift+Tab fix)
+
+Date: 2026-08-28 (system clock) · Charge: `~/.pi/tmp/fs5-charge.md`
+
+## What was built
+
+- **Mission 1 — shortcut fix.** `ctrl+shift+m` replaces `shift+tab` for mode
+  cycling. Scout verdict (pi 0.84.3 bundle, `dist/core/extensions/runner.js`):
+  builtin `shift+tab` = `app.thinking.cycle` and sits on
+  `RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS` (17 actions) — extension
+  registrations for reserved keys are DROPPED at resolution with the startup
+  warning FS4 observed. There is no override/replace flag on
+  `registerShortcut` (`{description, handler}` only). `ctrl+shift+m` verified
+  free across the entire builtin keymap (app + TUI maps; modifier order
+  insensitive). Shift+tab registration dropped entirely — option (c) was
+  rejected: a reserved-list registration is never "harmless", it just keeps
+  printing the warning. Key pinned by `tests/entrypoint.test.ts` (registered
+  AND shift+tab absent); picker title carries the hint.
+- **`watch.ts` (new)** — `ConfigWatcher` + `watchedConfigFiles()`.
+  Design: watches parent DIRECTORIES of all 9 inputs (6 rule scopes + 3 MCP
+  registry files), not the files — survives tmp+rename atomic writes, sees
+  creates/deletes uniformly, one non-recursive watcher per dir, events
+  filtered by watched basenames. Events only set a dirty flag; the reload
+  itself is lazy on the next `tool_call` (no debounce timers — event storms
+  coalesce into one boolean; mid-write invalid JSON is usually gone by the
+  next call, and the loader treats unparsable as absent-scope anyway).
+  Missing directories fall back to their NEAREST EXISTING ANCESTOR, filtered
+  on the missing dir's own basename (creation); every dirty reload re-syncs,
+  so the real dir watcher opens right after creation. Watcher errors close +
+  set dirty (a dying watcher never goes silent) and re-open on next sync.
+  `session_shutdown` stops everything. Children never start watchers
+  (per-spawn processes read fresh state at startup; mode snapshot fixed).
+- **`diagnostics.ts` (new)** — pure renderers: mode section (+ origin), rules
+  grouped by primary source with `(+N more source)` provenance, issues with
+  file+message+count, children policy (agentModes overrides, inheritance
+  channel state, floor, ask degradation), hot-reload state, and `renderAll`.
+  `rulesStatusText()` = `π <a>a·<d>d·<q>q` (+ ` ⚠<n>`).
+- **`index.ts`** — watcher wired at `session_start` (non-child); `tool_call`
+  checks dirty FIRST (before canonicalize): reload rules + registry +
+  config keys, **clear the session ask-cache**, re-sync watchers, refresh
+  status. `modeOrigin` tracking (flag / config / hard-default / shortcut /
+  picker) surfaced in diagnostics. `/permissions` picker: 4 modes stay
+  primary, `🩺 Diagnostics` trails; diagnostics = paged `ui.select`
+  navigation (esc = back/out). Status bar: new `permissions-rules` slot
+  written BEFORE the `permissions` slot (existing `statuses.at(-1)`
+  assertions keep meaning the mode text). Factory signature gained an
+  optional `deps` param (`{watchFn}`) — pi passes nothing, tests inject.
+- **Tests** 170 → 203: 8 watcher units (incl. the arity pin + ancestor
+  fallback + merge + error/stop lifecycle), 12 factory hot-reload tests
+  (bare-boot deny-add, remove-free, invalid JSON, delete, appearing local
+  file, cache clear, registry rebuild, status counts, late-dir re-sync,
+  child snapshot, shutdown cleanup), 13 diagnostics tests (pure renders +
+  factory picker/navigation/origin). Harness: `fakeWatch` option
+  (kernel-faithful event firing), `write()` helper, `permissionsCommand(hasUI)`,
+  `dispose()` now fires `session_shutdown` (watcher cleanup — also fixes a
+  watcher leak between tests).
+
+## Judgment calls
+
+1. **Session cache clears on watcher-triggered reload (charge-recommended
+   yes).** Subtlety documented: the evaluator runs before the ask cache is
+   consulted, so most stale-cache paths self-heal (a removed ask rule keys
+   future prompts on target.spec, not the old rule key). The clear closes
+   the same-spec-still-matching edge and matches `applyMode`/`session_start`
+   behavior (predictable: any config change = fresh approvals).
+2. **Diagnostics display = paged `ui.select`, not `ui.custom`/`setWidget`.**
+   `ui.custom` requires constructing pi-tui Components — a pi-tui VALUE
+   import, violating the FS0 runtime-import discipline (import-type-only +
+   node builtins). `setWidget` persists until cleared (no dismissal flow).
+   Paged select is pure strings, esc-dismissible, works in TUI + RPC, and
+   hermetically testable with the existing stub. Mode-picker stays primary
+   (4 modes first); Diagnostics is the trailing option — the FS2 picker test
+   (exact label strings) passes unchanged.
+3. **Directory watching + ancestor fallback rather than file watching.**
+   File-level FSWatchers die on the rename of every atomic write and can't
+   see appearing files. The fallback covers the charge's bare scenarios
+   (`.pi/` created by the first "Always" persist, or a seeded
+   `permissions.json` written into a bare probe dir) without watching all of
+   cwd: ancestor handles fire ONLY on the missing dir's own basename, so
+   unrelated cwd writes never trigger reloads/cache clears.
+4. **MCP registry rebuild comes free**: `reloadState()` always rebuilds the
+   registry, so `mcp.json` / `mcp-cache.json` changes need no separate path
+   (FS1 handoff note satisfied).
+5. **Rule counts as a separate status slot** (`permissions-rules`), not
+   appended to the mode text: existing status assertions (10+ across suites)
+   pin the mode text exactly; a separate key also lets each concern refresh
+   independently. Format documented in README.
+
+## Two real bugs found by the FS5 test build (fixed)
+
+1. **WatchListener arity trap**: node calls fs.watch listeners as
+   `(eventType, filename)`; the original single-arg adapter bound `filename`
+   to `"rename"`/`"change"` — basename filtering would reject everything, so
+   hot-reload would have been SILENTLY BROKEN on real machines. Found via
+   the fake-watch unit tests; pinned by "listener arity" test.
+2. **Builder-sandbox EMFILE**: every real `fs.watch` in the builder sandbox
+   fails with EMFILE. My first factory tests used real fs.watch and PASSED —
+   via the error→dirty→reload-every-call path, masking both the arity bug
+   and any real regression. Consequence: all factory hot-reload tests drive
+   a FAKE watch fn (deterministic, kernel-faithful events); real-watch
+   behavior is the orchestrator's harness-tab probe (outside this sandbox).
+
+## Deviations
+
+- Factory signature: `permissionExtension(pi, deps = {})` — second param is
+  pi-invisible (pi calls factories with one arg); tests use it to inject
+  `watchFn`. No other surface change.
+- No charge-item deviations. Status-bar format (`π Na·Nd·Nq ⚠N`), the
+  picker-trailing diagnostics entry, and the paged-select presentation are
+  documented calls within granted latitude.
+
+## FS6 handoff
+
+- Live probes owed by the orchestrator harness tab (outside builder sandbox):
+  mid-session rule edit honored next call (real fs.watch path), the
+  diagnostics view in a real TUI, `ctrl+shift+m` cycling by hand (FS2's
+  Shift+Tab residual is resolved by the rebind — verify once), and the
+  startup banner showing NO shortcut-conflict warning.
+- `watchedConfigFiles()` is the single source of watched inputs — if FS6
+  adds config files (protectedPaths migration), extend there.
+- EMFILE note for the probe: the harness tab runs unsandboxed, so real
+  watchers work there; if a probe profile ever runs under a sandbox, expect
+  the error-dirty fallback to make hot-reload still-pass-but-noisy.
