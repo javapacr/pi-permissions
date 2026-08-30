@@ -108,7 +108,6 @@ export default async function permissionExtension(pi: ExtensionAPI, deps: Extens
   let registry: McpRegistry | undefined;
   let evaluateOpts: EvaluateOptions = {};
   let readOnlyBash: string[] = [];
-  let persistTarget: string | undefined;
   let childrenKeys: Record<string, unknown> | undefined;
   const watcher = new ConfigWatcher(deps.watchFn);
   let lastLoadTime = new Date(0).toISOString();
@@ -131,7 +130,6 @@ export default async function permissionExtension(pi: ExtensionAPI, deps: Extens
     );
     evaluateOpts = { checkSafety: makeSafetyFloor({ home, protectedPaths, cwd }) };
     readOnlyBash = loaded.keys.productionSupport?.readOnlyBash ?? [];
-    persistTarget = loaded.keys.persistTarget;
     childrenKeys = loaded.keys.children;
     return loaded;
   };
@@ -339,7 +337,6 @@ export default async function permissionExtension(pi: ExtensionAPI, deps: Extens
       mode,
       cache,
       home,
-      persistTarget,
       onPersist: (spec, file) => {
         // Add the persisted rule to the live set so it takes effect from the
         // next call without a restart (session cache covers this key now).

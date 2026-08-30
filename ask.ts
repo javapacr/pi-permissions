@@ -1,12 +1,16 @@
 /**
- * Single ask dialog (FS3): `Allow once / Allow for session / Always / Deny /
- * Deny for session`, with a rule-keyed session cache (a matched ask rule
- * shares one approval across all its inputs — `git push origin main` and
- * `origin dev` share `Bash(git push *)`) and fail-closed headless behavior
- * (fixes the bridge's unguarded ui.select).
+ * Single ask dialog (FS3, D5 revised): `Allow now / Allow for this session /
+ * Allow in project directory / Allow in global directory / Deny`, with a
+ * rule-keyed session cache (a matched ask rule shares one approval across all
+ * its inputs — `git push origin main` and `origin dev` share
+ * `Bash(git push *)`) and fail-closed headless behavior (fixes the bridge's
+ * unguarded ui.select).
  *
- * "Always" persists an allow rule (D5) via persist.ts and reports it back so
- * the caller can add it to the live rule set.
+ * The two scoped options persist an allow rule (D5, revised 2026-08-30 by
+ * user decision) via persist.ts and report it back so the caller can add it
+ * to the live rule set: project writes the committed `.pi/permissions.json`,
+ * global writes `<PI_CODING_AGENT_DIR|~/.pi/agent>/permissions.json` (the
+ * loader's own pi-user path, via getPiAgentDir()).
  */
 
 import { homedir } from "node:os";
@@ -16,42 +20,30 @@ import { parseRuleSpec } from "./rules/parse.ts";
 import { describeBashRisk } from "./safety.ts";
 import { persistAllowRule } from "./persist.ts";
 
-export type AskDecision = "once" | "session" | "always" | "deny" | "deny-session";
+export type AskDecision = "once" | "session" | "project" | "global" | "deny";
 
 export const ASK_OPTIONS = [
-  "Allow once",
-  "Allow for session",
-  "Always",
+  "Allow now",
+  "Allow for this session",
+  "Allow in project directory",
+  "Allow in global directory",
   "Deny",
-  "Deny for session",
 ] as const;
 
-/** Session-scoped allow/deny memory, keyed on askKey(). */
+/** Session-scoped allow memory, keyed on askKey(). */
 export class AskCache {
   private readonly allowed = new Set<string>();
-  private readonly denied = new Set<string>();
 
   allow(key: string): void {
     this.allowed.add(key);
-    this.denied.delete(key);
-  }
-
-  deny(key: string): void {
-    this.denied.add(key);
-    this.allowed.delete(key);
   }
 
   isAllowed(key: string): boolean {
     return this.allowed.has(key);
   }
 
-  isDenied(key: string): boolean {
-    return this.denied.has(key);
-  }
-
   clear(): void {
     this.allowed.clear();
-    this.denied.clear();
   }
 }
 
@@ -74,9 +66,7 @@ export type ResolveAskOptions = {
   mode: string;
   cache: AskCache;
   home?: string;
-  /** D5 target override from pi config keys ("claude-local"). */
-  persistTarget?: string;
-  /** Notified after "Always" persisted; receives (spec, file). */
+  /** Notified after a scoped persist; receives (spec, file). */
   onPersist?: (spec: string, file: string) => void;
 };
 
@@ -89,9 +79,6 @@ export function askKey(target: CanonicalTarget, matchedRule?: ParsedRule): strin
 export async function resolveAsk(opts: ResolveAskOptions): Promise<AskResult> {
   const key = askKey(opts.target, opts.matchedRule);
   if (opts.cache.isAllowed(key)) return { allow: true };
-  if (opts.cache.isDenied(key)) {
-    return { allow: false, reason: `Denied for this session by user choice: ${key}` };
-  }
 
   const persistable = persistableSpec(opts.target, {
     home: opts.home ?? homedir(),
@@ -108,14 +95,20 @@ export async function resolveAsk(opts: ResolveAskOptions): Promise<AskResult> {
   }), [...ASK_OPTIONS]);
 
   switch (choice) {
-    case "Allow once":
+    case "Allow now":
       return { allow: true };
 
-    case "Allow for session":
+    case "Allow for this session":
       opts.cache.allow(key);
       return { allow: true };
 
-    case "Always":
+    // Both persist options share one path: session allow first, then persist
+    // an allow rule to the chosen scope (D5 revised — see file header). An
+    // unpersistable target (persistableSpec refused) or a write failure
+    // degrades to the session allow with a warning.
+    case "Allow in project directory":
+    case "Allow in global directory": {
+      const scope = choice === "Allow in project directory" ? "project" : "global";
       opts.cache.allow(key);
       if (persistable === undefined) {
         opts.ctx.ui.notify(
@@ -126,7 +119,7 @@ export async function resolveAsk(opts: ResolveAskOptions): Promise<AskResult> {
         try {
           const file = persistAllowRule(persistable, {
             cwd: resolve(opts.ctx.cwd ?? process.cwd()),
-            persistTarget: opts.persistTarget,
+            scope,
           });
           opts.onPersist?.(persistable, file);
         } catch (err) {
@@ -137,10 +130,7 @@ export async function resolveAsk(opts: ResolveAskOptions): Promise<AskResult> {
         }
       }
       return { allow: true };
-
-    case "Deny for session":
-      opts.cache.deny(key);
-      return { allow: false, reason: `User denied ${opts.target.spec} (denied for this session)` };
+    }
 
     // "Deny", undefined (esc), and anything unexpected: deny this call only.
     default:
@@ -161,7 +151,8 @@ export function dialogTitle(
 }
 
 /**
- * The spec to persist for "Always", or undefined when no sound rule exists:
+ * The spec to persist for the scoped options, or undefined when no sound
+ * rule exists:
  * - path targets: `Read|Edit(//<abs>)` — fs-root anchored so the rule
  *   re-matches the approved target from any scope (single-`/` patterns
  *   anchor at each source scope's anchor dir, per FS1 paths semantics);
@@ -202,6 +193,7 @@ export function headlessReason(
   const spec = hintSpec ?? target.spec;
   return `Permission required: ${target.spec} (mode ${mode}, no UI available to ask). `
     + `To proceed: ask the user to approve, add an allow rule — e.g. `
-    + `{"permissions":{"allow":["${spec}"]}} in .pi/permissions.local.json — `
+    + `{"permissions":{"allow":["${spec}"]}} in .pi/permissions.json (project) `
+    + `or permissions.json in the agent dir (PI_CODING_AGENT_DIR, default ~/.pi/agent) — `
     + `or run with --permission-mode bypassPermissions.`;
 }

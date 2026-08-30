@@ -92,7 +92,7 @@ export type CanonicalTarget = {
 	agent?: string;
 	/** R4 (review): gateway call attributed to a server only by fallback (bare
 	 * tool name not in the registry) — narrower than a real tool-level match,
-	 * so "Always" persistence must refuse it. */
+	 * so scoped persistence (project/global) must refuse it. */
 	unresolved?: boolean;
 };
 
@@ -122,7 +122,6 @@ export type PiConfigKeys = {
 	protectedPaths?: string[];
 	productionSupport?: { readOnlyBash?: string[] } & Record<string, unknown>;
 	children?: Record<string, unknown>;
-	persistTarget?: string;
 };
 
 /** Result of the dual-source loader. */

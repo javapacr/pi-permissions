@@ -103,7 +103,7 @@ pi exposes MCP twice: **direct tools** (first-class tools named e.g. `mempalace_
 | claude-global | `~/.config/claude/settings.json` | shares rules with Claude Code itself |
 | pi-user | `<agentDir>/permissions.json` | `<agentDir>` honors `PI_CODING_AGENT_DIR`; default `~/.pi/agent/permissions.json` |
 | pi-project | `<cwd>/.pi/permissions.json` | |
-| pi-local | `<cwd>/.pi/permissions.local.json` | target of "Always" persistence (see below) |
+| pi-local | `<cwd>/.pi/permissions.local.json` | hand-editable machine-local scope (dialog persistence writes pi-project / pi-user — see below) |
 
 Rules live under `"permissions": { "allow": […], "deny": […], "ask": […] }` (top-level arrays tolerated). Claude and pi scopes are merged into **one rule set: union + dedupe, with deny-dominance** — *deny anywhere beats allow anywhere; ask beats allow; first-match within a list* (decision D7). Source order affects only display and persistence targeting, never evaluation.
 
@@ -120,8 +120,7 @@ Pi scope files may additionally carry these root-level keys (merged per key in o
   "defaultMode": "default",                     // one of the 4 modes; startup default when no flag
   "protectedPaths": ["~/.config/sops/age/keys.txt"], // REPLACEs the built-in defaults — see Safety floor
   "productionSupport": { "readOnlyBash": ["git status", "git log", "Bash(kubectl get *)"] },
-  "children": { "agentModes": { "worker": "bypassPermissions" } },
-  "persistTarget": "claude-local"               // "Always" writes .claude/settings.local.json instead
+  "children": { "agentModes": { "worker": "bypassPermissions" } }
 }
 ```
 
@@ -131,14 +130,14 @@ A single dialog replaces the old double-prompt:
 
 ```
 🔒 Bash(git push origin main)
-  Allow once · Allow for session · Always · Deny · Deny for session      (esc = deny once)
+  Allow now · Allow for this session · Allow in project directory · Allow in global directory · Deny      (esc = deny once)
 ```
 
 Bash titles carry a risk annotation (⚠️ DANGEROUS recursive-delete-outside-project / chmod -R …; 🚫 CATASTROPHIC mkfs/dd/fork-bomb …).
 
 - **Session cache is keyed on the matched rule** (or the exact target when no rule matched), not on the raw input — one approval of `Bash(git push *)` covers `origin main` and `origin dev` for the session. Cache clears on mode change, session start, and any watched-file rule edit.
-- **"Always" persists an allow rule** to `.pi/permissions.local.json` (decision D5; or `.claude/settings.local.json` under `persistTarget: "claude-local"`), written atomically (tmp+rename) and effective from the next call with no restart. Persisted path specs use the `//` fs-root anchor (`Edit(//Users/you/project/src/foo.ts)`) so they re-match from any scope; `Write` approvals persist as `Edit` (the governing row). WebFetch without a hostname is unpersistable (no narrower rule than whole-tool exists) — you get a warning and session-only allow.
-- **"Always" under a matched *ask* rule is session-honest**: the persisted allow cannot override your ask rule in later sessions (`ask > allow` globally) — the choice holds for this session; the ask rule is never edited or removed.
+- **"Allow in project directory" persists an allow rule** to the committed `.pi/permissions.json`; **"Allow in global directory"** persists to `<agentDir>/permissions.json` (honors `PI_CODING_AGENT_DIR`, default `~/.pi/agent/permissions.json` — the loader's own pi-user path, so the rule reloads in every later session). Both are decision D5 (revised 2026-08-30 by user choice: the dialog may write the committed project config). Writes are atomic (tmp+rename) and effective from the next call with no restart. Persisted path specs use the `//` fs-root anchor (`Edit(//Users/you/project/src/foo.ts)`) so they re-match from any scope; `Write` approvals persist as `Edit` (the governing row). Unpersistable targets (WebFetch without a hostname — no narrower rule than whole-tool exists — plus whole-gateway `mcp` and registry-unresolved fallbacks) get a warning and session-only allow.
+- **A scoped persist under a matched *ask* rule is session-honest**: the persisted allow cannot override your ask rule in later sessions (`ask > allow` globally) — the choice holds for this session; the ask rule is never edited or removed.
 - **Headless (`pi -p`, no UI) fails closed** with an instructive reason naming the spec, the mode, and the unblock paths (add an allow rule / restart in bypass). Ask dialogs can never hang a headless run.
 
 ## Child policy (pi-subagents)

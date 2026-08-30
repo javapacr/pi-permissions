@@ -47,7 +47,7 @@ test("AGENT ask rule prompts in the parent (UI present); Allow frees + injects, 
     projectConfig: { permissions: { ask: ["Agent(worker)"] } },
   }, async (h) => {
     await h.sessionStart();
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     const input = spawn("worker");
     assert.equal(await h.toolCall("subagent", input), undefined);
     assert.equal(h.dialogs.length, 1);
@@ -101,7 +101,7 @@ test("AGENT bypass parent, no rule: spawn passes silently with bypass binding", 
 test("AGENT default parent, no rule: baseline prompts; approve injects default", async () => {
   await withHarness({ flags: { "permission-mode": "default" } }, async (h) => {
     await h.sessionStart();
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     const input = spawn("worker");
     assert.equal(await h.toolCall("subagent", input), undefined);
     assert.equal(h.dialogs.length, 1);
@@ -124,7 +124,7 @@ test("AGENT headless default parent: unmatched spawn fail-closes (existing headl
 test("AGENT production-support parent: spawn prompts (all non-free prompt)", async () => {
   await withHarness({ flags: { "permission-mode": "production-support" } }, async (h) => {
     await h.sessionStart();
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     const input = spawn("worker");
     assert.equal(await h.toolCall("subagent", input), undefined);
     assert.equal(h.dialogs.length, 1);
@@ -150,7 +150,7 @@ test("INJECTION preserves foreign namespaces; overwrites our own (model cannot p
   });
   await withHarness({ flags: { "permission-mode": "default" } }, async (h) => {
     await h.sessionStart();
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     const input = spawn("worker", {
       extensionBindings: { "other-ext/1": { pinned: true }, [BINDINGS_NAMESPACE]: { mode: "bypassPermissions" } },
     });
@@ -177,7 +177,7 @@ test("AGENT per-agent override resolved parent-side: config agentModes worker→
     projectConfig: { children: { agentModes: { worker: "bypassPermissions" } } },
   }, async (h) => {
     await h.sessionStart();
-    h.choices.push("Allow once"); // default parent still prompts for the spawn itself
+    h.choices.push("Allow now"); // default parent still prompts for the spawn itself
     const input = spawn("worker");
     assert.equal(await h.toolCall("subagent", input), undefined);
     assert.deepEqual(input.extensionBindings, { [BINDINGS_NAMESPACE]: { mode: "bypassPermissions" } }, "child gets the override, not the parent mode");
@@ -190,7 +190,7 @@ test("AGENT frontmatter permissionMode resolved parent-side (project .pi/agents)
   }, async (h) => {
     h.writeAgentDef("worker.md", { name: "worker", permissionMode: "acceptEdits" });
     await h.sessionStart();
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     const input = spawn("worker");
     assert.equal(await h.toolCall("subagent", input), undefined);
     assert.deepEqual(input.extensionBindings, { [BINDINGS_NAMESPACE]: { mode: "acceptEdits" } });
@@ -200,7 +200,7 @@ test("AGENT frontmatter permissionMode resolved parent-side (project .pi/agents)
 test("AGENT unnamed spawn inherits the parent mode verbatim (no override lookup)", async () => {
   await withHarness({ flags: { "permission-mode": "acceptEdits" } }, async (h) => {
     await h.sessionStart();
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     const input = spawn();
     assert.equal(await h.toolCall("subagent", input), undefined);
     assert.deepEqual(input.extensionBindings, { [BINDINGS_NAMESPACE]: { mode: "acceptEdits" } });

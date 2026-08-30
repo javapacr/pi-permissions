@@ -5,6 +5,5 @@
     "ask": []
   },
   "defaultMode": "default",
-  "protectedPaths": ["~/.ssh", "~/.gnupg"],
-  "persistTarget": "pi-local"
+  "protectedPaths": ["~/.ssh", "~/.gnupg"]
 }

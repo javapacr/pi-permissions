@@ -1,26 +1,28 @@
 /**
- * FS3 acceptance: persistence — correct scope format, dedupe, sibling-key
- * preservation, claude-local target, atomicity (tmp+rename, no residue).
+ * FS3 acceptance: persistence — correct scope formats (project →
+ * .pi/permissions.json, global → <agentDir>/permissions.json), dedupe,
+ * sibling-key preservation, atomicity (tmp+rename, no residue), and the
+ * global write target === loader pi-user read target invariant.
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { persistAllowRule } from "../persist.ts";
+import { defaultLoaderPaths } from "../loader.ts";
 
 function tmpCwd(): { cwd: string; cleanup: () => void } {
   const cwd = mkdtempSync(join(tmpdir(), "piperm-persist-"));
   return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
-test("writes {permissions:{allow:[spec]}} creating the .pi directory", () => {
+test("project scope writes {permissions:{allow:[spec]}} creating the .pi directory", () => {
   const { cwd, cleanup } = tmpCwd();
   try {
-    const file = persistAllowRule("Bash(echo hi)", { cwd });
-    assert.equal(file, join(cwd, ".pi", "permissions.local.json"));
+    const file = persistAllowRule("Bash(echo hi)", { cwd, scope: "project" });
+    assert.equal(file, join(cwd, ".pi", "permissions.json"));
     const parsed = JSON.parse(readFileSync(file, "utf-8"));
     assert.deepEqual(parsed, { permissions: { allow: ["Bash(echo hi)"] } });
     assert.equal(existsSync(`${file}.tmp`), false, "no tmp residue (atomic rename)");
@@ -32,9 +34,9 @@ test("writes {permissions:{allow:[spec]}} creating the .pi directory", () => {
 test("dedupes exact-string repeats", () => {
   const { cwd, cleanup } = tmpCwd();
   try {
-    const file = persistAllowRule("Bash(echo hi)", { cwd });
-    persistAllowRule("Bash(echo hi)", { cwd });
-    persistAllowRule("Bash(echo bye)", { cwd });
+    const file = persistAllowRule("Bash(echo hi)", { cwd, scope: "project" });
+    persistAllowRule("Bash(echo hi)", { cwd, scope: "project" });
+    persistAllowRule("Bash(echo bye)", { cwd, scope: "project" });
     const parsed = JSON.parse(readFileSync(file, "utf-8"));
     assert.deepEqual(parsed.permissions.allow, ["Bash(echo hi)", "Bash(echo bye)"]);
   } finally {
@@ -45,13 +47,13 @@ test("dedupes exact-string repeats", () => {
 test("preserves sibling keys (top-level + permissions.deny/ask)", () => {
   const { cwd, cleanup } = tmpCwd();
   try {
-    const file = join(cwd, ".pi", "permissions.local.json");
+    const file = join(cwd, ".pi", "permissions.json");
     mkdirSync(join(cwd, ".pi"), { recursive: true });
     writeFileSync(file, JSON.stringify({
       defaultMode: "acceptEdits",
       permissions: { allow: ["Bash(ls)"], deny: ["Bash(rm *)"], ask: ["Edit(src/**)"] },
     }, null, 2));
-    persistAllowRule("Bash(echo hi)", { cwd });
+    persistAllowRule("Bash(echo hi)", { cwd, scope: "project" });
     const parsed = JSON.parse(readFileSync(file, "utf-8"));
     assert.equal(parsed.defaultMode, "acceptEdits");
     assert.deepEqual(parsed.permissions.deny, ["Bash(rm *)"]);
@@ -62,14 +64,35 @@ test("preserves sibling keys (top-level + permissions.deny/ask)", () => {
   }
 });
 
-test("persistTarget 'claude-local' writes .claude/settings.local.json", () => {
+test("global scope writes <agentDir>/permissions.json (injected agentDir)", () => {
   const { cwd, cleanup } = tmpCwd();
+  const agentDir = mkdtempSync(join(tmpdir(), "piperm-agent-"));
   try {
-    const file = persistAllowRule("WebFetch(domain:example.com)", { cwd, persistTarget: "claude-local" });
-    assert.equal(file, join(cwd, ".claude", "settings.local.json"));
+    const file = persistAllowRule("WebFetch(domain:example.com)", { cwd, scope: "global", agentDir });
+    assert.equal(file, join(agentDir, "permissions.json"));
     const parsed = JSON.parse(readFileSync(file, "utf-8"));
     assert.deepEqual(parsed.permissions.allow, ["WebFetch(domain:example.com)"]);
+    assert.equal(existsSync(join(cwd, ".pi", "permissions.json")), false, "project scope untouched");
   } finally {
+    rmSync(agentDir, { recursive: true, force: true });
+    cleanup();
+  }
+});
+
+test("INVARIANT: global write target === loader pi-user read target for the same env", () => {
+  const { cwd, cleanup } = tmpCwd();
+  const agentDir = mkdtempSync(join(tmpdir(), "piperm-agent-"));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  try {
+    const wrote = persistAllowRule("Bash(ls)", { cwd, scope: "global" });
+    const reads = defaultLoaderPaths(cwd).piUser;
+    assert.equal(wrote, reads, "a dialog-persisted rule must reload from the pi-user scope");
+    assert.equal(wrote, join(agentDir, "permissions.json"));
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
+    rmSync(agentDir, { recursive: true, force: true });
     cleanup();
   }
 });
@@ -77,10 +100,10 @@ test("persistTarget 'claude-local' writes .claude/settings.local.json", () => {
 test("corrupt existing file is replaced (documented trade-off), not propagated", () => {
   const { cwd, cleanup } = tmpCwd();
   try {
-    const file = join(cwd, ".pi", "permissions.local.json");
+    const file = join(cwd, ".pi", "permissions.json");
     mkdirSync(join(cwd, ".pi"), { recursive: true });
     writeFileSync(file, "{not json", "utf-8");
-    persistAllowRule("Bash(ls)", { cwd });
+    persistAllowRule("Bash(ls)", { cwd, scope: "project" });
     const parsed = JSON.parse(readFileSync(file, "utf-8"));
     assert.deepEqual(parsed.permissions.allow, ["Bash(ls)"]);
   } finally {
@@ -91,7 +114,7 @@ test("corrupt existing file is replaced (documented trade-off), not propagated",
 test("written file is parseable pretty JSON with trailing newline", () => {
   const { cwd, cleanup } = tmpCwd();
   try {
-    const file = persistAllowRule("Bash(ls)", { cwd });
+    const file = persistAllowRule("Bash(ls)", { cwd, scope: "project" });
     const raw = readFileSync(file, "utf-8");
     assert.ok(raw.endsWith("\n"));
     JSON.parse(raw);

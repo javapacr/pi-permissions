@@ -243,7 +243,7 @@ test("HOT: deleting the rule file does not crash and drops its rules", async () 
 });
 
 test("HOT: a permissions.local.json appearing after startup is watched and honored", async () => {
-  // The "Always"-persist scenario: `.pi/` exists (project scope lives in it)
+  // The late-appearing-config scenario (the dialog now persists `.pi/permissions.json`; this test covers the separate pi-local `permissions.local.json` read scope): `.pi/` exists (project scope lives in it)
   // but the local file does not — created later, the directory watcher sees it.
   await withHarness({ fakeWatch: true, projectConfig: { permissions: {} } }, async (h) => {
     await h.sessionStart();
@@ -263,7 +263,7 @@ test("HOT: hot reload clears the session ask-cache (removed approvals don't ling
       projectConfig: { permissions: { ask: ["Bash(echo *)"] } },
     },
     async (h) => {
-      h.choices.push("Allow for session");
+      h.choices.push("Allow for this session");
       await h.sessionStart();
       assert.equal(await h.toolCall("bash", bash("echo hi")), undefined);
       assert.equal(h.dialogs.length, 1);

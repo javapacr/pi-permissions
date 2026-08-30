@@ -4,17 +4,18 @@
  * Watches the parent DIRECTORIES (not the files) of every rule/config source
  * + MCP registry input: directory watching survives the tmp+rename pattern
  * used by atomic writers (a file-level FSWatcher dies on rename), catches
- * files that appear after startup (a `.pi/permissions.local.json` created by
- * "Always"), and sees deletes uniformly. One non-recursive watcher per
- * distinct directory, events filtered by the watched basenames.
+ * files that appear after startup (a dialog-persisted `.pi/permissions.json`
+ * or `<agentDir>/permissions.json`), and sees deletes uniformly. One
+ * non-recursive watcher per distinct directory, events filtered by the
+ * watched basenames.
  *
  * Directories that do not exist yet are handled by the nearest-existing-
  * ancestor fallback: sync() walks up from a missing directory until it finds
  * one that exists and watches THAT, filtering events on the missing
  * directory's own basename — so the creation of `.pi/` in a bare project
  * fires, and the post-reload re-sync (index.ts re-syncs after every
- * watcher-triggered reload) opens the real directory watcher. In the
- * "Always" case the persisted rule also reaches the live set directly via
+ * watcher-triggered reload) opens the real directory watcher. For the scoped
+ * persist options the rule also reaches the live set directly via
  * the onPersist callback, covering the very next call regardless.
  *
  * Semantics: events only mark the watcher DIRTY — the actual reload happens

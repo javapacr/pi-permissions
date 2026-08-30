@@ -192,3 +192,20 @@ zsh is foreground via `herdr pane process-info --pane w0:p5`.
 
 **Acceptance:** every expected string observed with pi-permissions (and only it, plus the
 adapter/subagents runtime extensions) loaded; unit bar green; startup warning-free.
+
+---
+
+## Addendum 2026-08-30 — dialog v2 (scoped persistence)
+
+The probe runs above were executed against the original dialog
+(`Allow once / Allow for session / Always / Deny / Deny for session`).
+The dialog was revised the same week by user decision (D5 revision): it is now
+`Allow now / Allow for this session / Allow in project directory /
+Allow in global directory / Deny`. Where a probe says **Allow once** read
+**Allow now**; **Allow for session** → **Allow for this session**; **Always**
+→ the scoped option matching the intended target (**Allow in project
+directory** writes the committed `.pi/permissions.json`, **Allow in global
+directory** writes `<PI_CODING_AGENT_DIR|~/.pi/agent>/permissions.json`).
+Probe F's persisted file is therefore `.pi/permissions.json` (or the agent-dir
+file), not `.pi/permissions.local.json`. `persistTarget: "claude-local"` no
+longer exists. Future probe runs should use the new option names verbatim.

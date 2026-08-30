@@ -2,7 +2,7 @@
  * Mode definitions (FS2, D1/D2/D4): the 4-mode set — plan mode deleted
  * (stays with pi-plan-tools/plannotator); custom modes deleted with the
  * zackify legacy config reader (no config surface carries them; D6 keys are
- * defaultMode/protectedPaths/productionSupport/children/persistTarget —
+ * defaultMode/protectedPaths/productionSupport/children —
  * production-support's readOnlyBash covers the investigation use case).
  *
  * Skeleton pieces (Shift+Tab cycling, mode labels/status) are ported from

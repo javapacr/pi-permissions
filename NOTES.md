@@ -187,8 +187,9 @@ Date: 2026-08-28 (system clock; the research/backlog docs carry a misdated
 
 - Build modes on `loadRules()` (loader.ts): `keys.defaultMode` is wired and
   merged (local > project > user); `keys.protectedPaths` /
-  `productionSupport` / `children` / `persistTarget` are parsed, typed and
-  waiting. Delete `loadZackifyCompatConfig` + its index.ts call site and
+  `productionSupport` / `children` / `persistTarget` (the latter since
+  removed 2026-08-30 — D5 revision, see judgment calls) are parsed, typed
+  and waiting. Delete `loadZackifyCompatConfig` + its index.ts call site and
   rewire the factory onto the dual-source loader.
 - The evaluator is the decision oracle: FS2 composes its verdict with mode
   baselines (`deny > ask > mode baseline > allow`); FS3 replaces the safety
@@ -230,15 +231,16 @@ Decisions addendum: `~/.pi/tmp/fs23-decisions.md`
   `DEFAULT_DANGEROUS/DEFAULT_CATASTROPHIC/DEFAULT_PROTECTED_PATHS` moved here
   from loader.ts (only consumer). `describeBashRisk` labels the ask dialog.
   Not overridable — `allowCatastrophic` died with the legacy reader.
-- `ask.ts` — single 5-option dialog (`Allow once / Allow for session /
-  Always / Deny / Deny for session`; esc → deny-once), `AskCache`
-  (allow/deny session sets, keyed `matchedRule?.spec ?? target.spec`),
-  headless fail-closed with the instructive reason (§F shape), "Always"
+- `ask.ts` — single 5-option dialog (`Allow now / Allow for this session /
+  Allow in project directory / Allow in global directory / Deny`;
+  esc → deny-once; D5 revised 2026-08-30 — see judgment call 3), `AskCache`
+  (allow-only session set, keyed `matchedRule?.spec ?? target.spec`),
+  headless fail-closed with the instructive reason (§F shape), scoped
   persistence with parse-validation and unpersistable-target warning.
 - `persist.ts` — atomic (tmp+rename) `permissions.allow` append to
-  `.pi/permissions.local.json` (D5) or `.claude/settings.local.json`
-  (`persistTarget: "claude-local"`); exact-string dedupe; sibling keys
-  preserved.
+  `.pi/permissions.json` (scope "project", D5 revised 2026-08-30) or
+  `<agentDir>/permissions.json` (scope "global", via the loader's own
+  `getPiAgentDir()`); exact-string dedupe; sibling keys preserved.
 - `evaluator.ts` — additive `EvaluateOptions.ignoreAllow` (production-support
   never consults allow rules).
 - `loader.ts` — `loadZackifyCompatConfig` + `PermissionsConfig` /
@@ -249,7 +251,7 @@ Decisions addendum: `~/.pi/tmp/fs23-decisions.md`
   `tests/modes-matrix.test.ts`). `session_start` (re)loads rules via
   `loadRules({cwd})`, builds the registry once via
   `buildDefaultMcpRegistry(ctx.cwd)`, builds the floor, reads
-  `productionSupport.readOnlyBash` + `persistTarget`, resolves mode
+  `productionSupport.readOnlyBash`, resolves mode
   (flags > `defaultMode` > D4 bypass), status bar. Lazy reload guard in
   `tool_call` for pre-session calls. Child baseline (`PI_SUBAGENT_CHILD=1`):
   no status/shortcut/command registrations, flags+defaultMode ignored,
@@ -294,6 +296,13 @@ UX; Claude Code parity).
    the ask rule across sessions (deny > ask > allow is global); the session
    cache honors the choice for the session. The user's ask rule is never
    edited/removed.
+   REVISED 2026-08-30 (user decision — D5 revision): dialog persistence is
+   scoped — "Allow in project directory" writes the committed
+   `.pi/permissions.json`, "Allow in global directory" writes
+   `<PI_CODING_AGENT_DIR|~/.pi/agent>/permissions.json`; the `persistTarget`
+   config key and the "Deny for session" option were removed. The
+   session-honesty property for a scoped persist under an ask rule is
+   unchanged.
 4. **`rm -rf /var/*` (globbed critical dir) is NOT floor-blocked** — the
    zackify port matches exact critical dirs only (`/var` yes, `/var/*` no).
    Faithful port; listed as a known limitation, not "fixed" silently.
@@ -328,8 +337,8 @@ UX; Claude Code parity).
 - `keys.children` is parsed and waiting (unused).
 - Rules reload per `session_start`; FS5 hot-reload should hook
   `reloadState` (also rebuilds the registry).
-- "Always" appends to the live rule set via `onPersist` — no restart needed
-  for persisted rules within a session.
+- Scoped persists append to the live rule set via `onPersist` — no restart
+  needed for persisted rules within a session.
 
 ---
 

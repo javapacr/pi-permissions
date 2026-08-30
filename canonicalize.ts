@@ -289,7 +289,7 @@ function canonicalizeGateway(input: Record<string, unknown>, registry?: McpRegis
 	});
 	/** R4 (review): a bare tool name that the registry cannot resolve for a
 	 * KNOWN server still attributes to that server (so `mcp__S` deny/ask rules
-	 * apply) — marked unresolved so "Always" will not persist it. */
+	 * apply) — marked unresolved so scoped persistence will not persist it. */
 	const unresolvedServerTool = (name: string): CanonicalTarget => ({
 		...asServer(name), unresolved: true,
 	});

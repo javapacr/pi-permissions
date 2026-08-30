@@ -33,13 +33,14 @@ test("MATRIX bypass | deny rule | blocks", async () => {
 
 test("MATRIX bypass | ask rule | prompts even in bypass (Claude semantics)", async () => {
   await withHarness({ projectConfig: { permissions: { ask: ["Bash(echo *)"] } } }, async (h) => {
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     await h.sessionStart();
     assert.equal(await h.toolCall("bash", bash("echo hi")), undefined);
     assert.equal(h.dialogs.length, 1);
     assert.match(h.dialogs[0]!.title, /Bash\(echo hi\)/);
     assert.deepEqual(h.dialogs[0]!.options, [
-      "Allow once", "Allow for session", "Always", "Deny", "Deny for session",
+      "Allow now", "Allow for this session", "Allow in project directory",
+      "Allow in global directory", "Deny",
     ]);
   });
 });
@@ -57,7 +58,7 @@ test("MATRIX bypass | ask rule | headless fails closed with instructive reason",
 
 test("MATRIX default | no rule | reads free, bash/edit/webfetch prompt", async () => {
   await withHarness({ flags: { "permission-mode": "default" } }, async (h) => {
-    h.choices.push("Allow once", "Allow once", "Allow once");
+    h.choices.push("Allow now", "Allow now", "Allow now");
     await h.sessionStart();
     assert.equal(h.statuses.at(-1)?.text, "⏵ Default");
 
@@ -101,7 +102,7 @@ test("MATRIX default | deny + ask | deny beats ask beats baseline", async () => 
 
 test("MATRIX acceptEdits | no rule | write/edit auto-allow, rest per default", async () => {
   await withHarness({ flags: { "permission-mode": "acceptEdits" } }, async (h) => {
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     await h.sessionStart();
     assert.equal(h.statuses.at(-1)?.text, "⏵⏵ Accept Edits");
     assert.equal(await h.toolCall("edit", { path: `${h.cwd}/a.ts` }), undefined);
@@ -154,7 +155,7 @@ test("MATRIX acceptEdits | allow for non-edit tools consults", async () => {
 
 test("MATRIX production-support | no rule | reads free, everything else prompts", async () => {
   await withHarness({ flags: { "permission-mode": "production-support" } }, async (h) => {
-    h.choices.push("Allow once", "Allow once", "Allow once", "Allow once");
+    h.choices.push("Allow now", "Allow now", "Allow now", "Allow now");
     await h.sessionStart();
     assert.equal(h.statuses.at(-1)?.text, "🛡 Production Support");
 
@@ -280,7 +281,7 @@ test("FLAGS --dangerously-skip-permissions forces bypass over defaultMode config
 
 test("FLAGS defaultMode config key honored when no flag given", async () => {
   await withHarness({ userConfig: { defaultMode: "acceptEdits" } }, async (h) => {
-    h.choices.push("Allow once");
+    h.choices.push("Allow now");
     await h.sessionStart();
     assert.equal(h.statuses.at(-1)?.text, "⏵⏵ Accept Edits");
     assert.equal(await h.toolCall("edit", { path: `${h.cwd}/a.ts` }), undefined);

@@ -12,7 +12,7 @@
  * Evaluation is order-independent (deny anywhere beats allow anywhere; ask
  * beats allow — enforced by the evaluator); scope order below affects display
  * and first-match reporting only. Pi files may carry config keys
- * (defaultMode, protectedPaths, productionSupport, children, persistTarget) —
+ * (defaultMode, protectedPaths, productionSupport, children) —
  * parsed and exposed, not acted on until FS2+.
  *
  * Also hosted the FS0 zackify-legacy config reader until FS2 deleted it
@@ -179,8 +179,6 @@ function extractPiKeys(root: Record<string, unknown>): PiConfigKeys {
 	if (root.children && typeof root.children === "object") {
 		keys.children = root.children as Record<string, unknown>;
 	}
-	const persist = stringOrUndefined(root.persistTarget);
-	if (persist) keys.persistTarget = persist;
 	return Object.keys(keys).length > 0 ? keys : {};
 }
 
@@ -190,5 +188,4 @@ function mergeKeys(target: PiConfigKeys, incoming: PiConfigKeys) {
 	if (incoming.protectedPaths !== undefined) target.protectedPaths = incoming.protectedPaths;
 	if (incoming.productionSupport !== undefined) target.productionSupport = incoming.productionSupport;
 	if (incoming.children !== undefined) target.children = incoming.children;
-	if (incoming.persistTarget !== undefined) target.persistTarget = incoming.persistTarget;
 }

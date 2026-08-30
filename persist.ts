@@ -1,29 +1,37 @@
 /**
- * Atomic persistence of "Always allow" rules (FS3, D5):
- * - default target `.pi/permissions.local.json` (machine-local, gitignored);
- * - `persistTarget: "claude-local"` config honored → `.claude/settings.local.json`;
+ * Atomic persistence of dialog allow rules (FS3, D5 revised 2026-08-30):
+ * - scope "project" → `<cwd>/.pi/permissions.json` (committed project config);
+ * - scope "global" → `<agentDir>/permissions.json` (pi-user scope; agentDir
+ *   via getPiAgentDir() — honors PI_CODING_AGENT_DIR, default ~/.pi/agent —
+ *   the exact path loader.ts reads, so a persisted rule reloads next session);
  * - read-modify-write preserving every other key, exact-string dedupe;
  * - atomic via tmp file + rename in the same directory.
  *
+ * `agentDir` is test injection only; production call sites omit it.
  * Corrupt/unreadable existing files are treated as absent (documented in
  * NOTES — the caller surfaces a notify, the session allow still applies).
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { getPiAgentDir } from "./canonicalize.ts";
+
+export type PersistScope = "project" | "global";
 
 export type PersistOptions = {
   cwd: string;
-  /** "claude-local" → .claude/settings.local.json; anything else → pi-local (D5). */
-  persistTarget?: string;
+  /** Which config file receives the rule (D5 revised: project or global). */
+  scope: PersistScope;
+  /** Test injection only: overrides getPiAgentDir() for scope "global". */
+  agentDir?: string;
 };
 
 /** Append `spec` to the target scope's allow list. Returns the file written. */
 export function persistAllowRule(spec: string, opts: PersistOptions): string {
   const cwd = resolve(opts.cwd);
-  const file = opts.persistTarget === "claude-local"
-    ? join(cwd, ".claude", "settings.local.json")
-    : join(cwd, ".pi", "permissions.local.json");
+  const file = opts.scope === "global"
+    ? join(opts.agentDir ?? getPiAgentDir(), "permissions.json")
+    : join(cwd, ".pi", "permissions.json");
 
   let root: Record<string, unknown> = {};
   try {

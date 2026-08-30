@@ -51,7 +51,6 @@ test("pi config keys parsed and merged local > project > user", async () => {
 	assert.equal(loaded.keys.defaultMode, "bypassPermissions"); // pi-local wins
 	assert.deepEqual(loaded.keys.protectedPaths, ["~/.ssh", "~/.gnupg"]); // pi-user only
 	assert.deepEqual(loaded.keys.productionSupport?.readOnlyBash, ["git status", "kubectl get"]); // pi-project only
-	assert.equal(loaded.keys.persistTarget, "pi-local");
 	assert.deepEqual(loaded.keys.children, { policy: "inherit" }); // pi-local
 });
 
