@@ -52,7 +52,7 @@ Rules are Claude-format strings in `allow` / `deny` / `ask` lists. Evaluation is
 
 | Spec form | Matches | Notes |
 |---|---|---|
-| `Bash(npm run *)` | `npm run build`, `npm run test -- --watch`, and bare `npm run` | trailing ` *` (or `:*`) = Claude prefix semantics incl. the bare prefix |
+| `Bash(npm run *)` | `npm run build`, `npm run test -- --watch`, and bare `npm run` | trailing `*` (or `:*`) = Claude prefix semantics incl. the bare prefix |
 | `Bash(ls *)` vs `Bash(ls*)` | `ls *` → `ls` + args only; `ls*` → also `lsof`, `lsblk`… | glued `*` = `^ls.*`; mid-`*` = `.*`; no glob = exact |
 | `Read`, `Edit`, `Write`, `WebFetch`, `WebSearch`… | the whole tool | bare tool names |
 | `Read(.env)` / `Edit(src/**)` / `Read(~/.ssh/config)` | gitignore-style path globs | see path anchors below |
@@ -177,7 +177,7 @@ Children have no TUI, so they can never prompt. Policy (decision D8):
 Two footer slots:
 
 - `permissions` — mode icon + label, e.g. `🛡 Production Support`
-- `permissions-rules` — `π 53a·13d·1q` (allow·deny·ask counts), plus ` ⚠1` when invalid specs were counted
+- `permissions-rules` — `π 53a·13d·1q` (allow·deny·ask counts), plus `⚠1` when invalid specs were counted
 
 **Hot-reload**: the session watches all nine inputs — the six rule/config scopes above plus the MCP registry inputs (`<agentDir>/mcp.json`, `<agentDir>/mcp-cache.json`, `<cwd>/.pi/mcp.json`). Any change **applies from the next tool call** — no restart, no prompt; rule edits also clear the session ask-cache (a removed rule must not keep honoring old approvals) and rebuild the MCP registry. Directories that don't exist yet are covered by watching their nearest existing ancestor (creation of `.pi/` in a bare project fires); atomic tmp+rename writes are seen because directories, not files, are watched.
 
@@ -222,3 +222,12 @@ npm run typecheck # tsc --noEmit
 Runtime imports are `import type`-only from `@earendil-works/pi-coding-agent` plus `node:*` builtins; deps are dev-only. Relative specifiers carry explicit `.ts` extensions.
 
 Attribution: seed fork of `@zackify/pi-claude-permissions` v1.0.6 (MIT, © 2026 Zach) with the `pi-claude-permissions-bridge` engine grafted in — see NOTICE and LICENSE. `reference/` preserves the bridge originals (excluded from tsc, never imported).
+
+## Sandbox original-command contract (pi-claude-sandbox)
+
+pi-claude-sandbox stamps the user's original bash command under
+`Symbol.for("pi-claude-sandbox.original-command")` on the tool input BEFORE overwriting
+`input.command` with the sandbox wrap; the canonicalizer prefers that stamp so rules and
+the always-on safety floor judge the user's command regardless of tool_call listener
+timing (the two listeners race). RTK and pi-mise also rewrite commands and are
+stamp-unaware — benign today: neither introduces protected-path text.

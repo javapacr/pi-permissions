@@ -99,7 +99,11 @@ export function makeSafetyFloor(
       if (catastrophe) return blocked(`catastrophic command (${catastrophe.description})`);
 
       const protectedHit = findProtectedPathInText(command, opts.home, opts.protectedPaths);
-      if (protectedHit) return blocked(`bash command references protected path ${protectedHit}`);
+      if (protectedHit) {
+        return blocked(
+          `bash command references protected path ${protectedHit.path} (matched ${JSON.stringify(protectedHit.matchedText)} at offset ${protectedHit.index} of evaluated command: ${contextSnippet(command, protectedHit.index, protectedHit.matchedText.length)})`,
+        );
+      }
 
       return undefined;
     }
@@ -147,18 +151,43 @@ function readablePath(absolute: string, home: string): string {
   return home && absolute.startsWith(home) ? absolute.replace(home, "~") : absolute;
 }
 
-/** zackify's command-text check: absolute OR `~`-form reference to a protected path. */
+/** zackify's command-text check: absolute OR `~`-form reference to a protected path.
+ * Reports WHERE it matched (variant + offset) so block reasons are falsifiable
+ * from the outside — a floor that cannot be overridden must not produce
+ * unfalsifiable claims (P1 false-positive 2026-09-04). */
+type ProtectedPathHit = {
+  /** Readable (`~/`-collapsed) protected path for the reason prefix. */
+  path: string;
+  /** The exact variant found in the command text (absolute or ~ form). */
+  matchedText: string;
+  /** Offset of matchedText within the evaluated command. */
+  index: number;
+};
+
 function findProtectedPathInText(
   command: string,
   home: string,
   protectedPaths: string[],
-): string | undefined {
+): ProtectedPathHit | undefined {
   for (const path of protectedPaths) {
-    if (command.includes(path) || command.includes(path.replace(home, "~"))) {
-      return readablePath(path, home);
-    }
+    const tildeForm = path.replace(home, "~");
+    const candidates = [
+      { text: path, index: command.indexOf(path) },
+      { text: tildeForm, index: tildeForm === path ? -1 : command.indexOf(tildeForm) },
+    ].filter((candidate) => candidate.index !== -1).sort((a, b) => a.index - b.index);
+    const hit = candidates[0];
+    if (hit) return { path: readablePath(path, home), matchedText: hit.text, index: hit.index };
   }
   return undefined;
+}
+
+/** ~100-char single-line context window around the match, newline-collapsed,
+ * ellipsized when truncated. */
+function contextSnippet(text: string, index: number, length: number, window = 100): string {
+  const start = Math.max(0, index - Math.floor(window / 2));
+  const end = Math.min(text.length, index + length + Math.floor(window / 2));
+  const body = text.slice(start, end).replace(/\s+/g, " ");
+  return `${start > 0 ? "…" : ""}${body}${end < text.length ? "…" : ""}`;
 }
 
 function findMatch(command: string, patterns: Pattern[]): Pattern | undefined {

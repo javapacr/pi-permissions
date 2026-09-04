@@ -28,6 +28,17 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CanonicalTarget, McpRegistry } from "./types.ts";
 
+/**
+ * Cross-extension contract with pi-claude-sandbox (sibling repo in this
+ * monorepo — same Symbol.for string, deliberately not an import): the sandbox
+ * stamps the user's ORIGINAL command on the tool input under this key BEFORE
+ * it mutates `input.command` into the sandbox-wrapped string, whose inlined
+ * seatbelt profile embeds protected paths (e.g. /Users/reevonr/.ssh) on every
+ * wrapped call. Preferring the stamp keeps rule matching + the safety floor
+ * on the user's command regardless of extension tool_call listener timing.
+ */
+const SANDBOX_ORIGINAL_COMMAND: symbol = Symbol.for("pi-claude-sandbox.original-command");
+
 /** pi wire tool name -> Claude-canonical tool name. */
 export const PI_TO_CLAUDE: Record<string, string> = {
 	bash: "Bash",
@@ -212,7 +223,10 @@ export function canonicalize(
 
 	const claude = PI_TO_CLAUDE[toolName];
 	if (claude === "Bash" || claude === "PowerShell") {
-		const command = str(input.command) ?? "";
+		// Prefer the sandbox-stamped original (see SANDBOX_ORIGINAL_COMMAND);
+		// narrow cast only — Record<string, unknown> has no symbol index signature.
+		const stamped = (input as Record<string | symbol, unknown>)[SANDBOX_ORIGINAL_COMMAND];
+		const command = str(stamped) ?? str(input.command) ?? "";
 		return { spec: `${claude}(${command})`, family: "bash", tool: claude, piTool: toolName, command };
 	}
 	if (claude === "Read") {
