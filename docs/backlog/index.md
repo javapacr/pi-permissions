@@ -15,6 +15,7 @@ One item per file (`item<N>.md`), numbered by priority (author order for item1â€
 | [item9](item9.md) | R5: config self-modification under acceptEdits | needs-design | L |
 | [item10](item10.md) | Upstream pi-core filing: intercom `before_agent_start` bypass | optional | S |
 | [item11](item11.md) | Parked safety gaps (phase-2 bundle) | parked | Mâ€“L |
+| [item12](item12.md) | Script invocation caps (exfil-loop defense-in-depth) | ready | S |
 
 ## Done (recent)
 
