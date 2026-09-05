@@ -18,7 +18,7 @@ Cycle with **`ctrl+shift+m`** (or `/permissions`). Order: `default → acceptEdi
 | `default` | ⏵ | Reads free; every other tool prompts unless an allow rule matches |
 | `acceptEdits` | ⏵⏵ | Write/edit auto-allowed (minus deny/ask rules + safety floor); rest per `default` |
 | `production-support` | 🛡 | Investigation mode: reads + safelisted read-only bash free; **everything else prompts**; investigation framing injected into the model's context |
-| `bypassPermissions` | ⏵⏵⏵⏵ | **Startup default.** Everything passes except deny/ask rules + safety floor |
+| `bypassPermissions` | ⏭ | **Startup default.** Everything passes except deny/ask rules + safety floor |
 
 **Invariant: `deny > ask > mode baseline > allow`.** Deny rules and the always-on safety floor block in *every* mode, including bypass; ask rules prompt in *every* mode, including bypass. Allow rules are consulted only where they change the outcome — `production-support` skips the allow pass entirely (investigations must not be broadened by pre-existing allows).
 

@@ -14,7 +14,7 @@ const bash = (command: string) => ({ command });
 test("MATRIX bypass | no rule | unmatched bash passes silently (D4 default)", async () => {
   await withHarness({}, async (h) => {
     await h.sessionStart();
-    assert.equal(h.statuses.at(-1)?.text, "⏵⏵⏵⏵ Bypass Permissions");
+    assert.equal(h.statuses.at(-1)?.text, "⏭ Bypass Permissions");
     assert.equal(await h.toolCall("bash", bash("echo hi")), undefined);
     assert.equal(await h.toolCall("write", { path: `${h.cwd}/x.txt`, content: "x" }), undefined);
     assert.equal(h.dialogs.length, 0);
@@ -235,7 +235,7 @@ test("CYCLE Shift+Tab order default → acceptEdits → production-support → b
     await h.cycleMode();
     assert.equal(h.statuses.at(-1)?.text, "🛡 Production Support");
     await h.cycleMode();
-    assert.equal(h.statuses.at(-1)?.text, "⏵⏵⏵⏵ Bypass Permissions");
+    assert.equal(h.statuses.at(-1)?.text, "⏭ Bypass Permissions");
     await h.cycleMode();
     assert.equal(h.statuses.at(-1)?.text, "⏵ Default");
   });
@@ -275,7 +275,7 @@ test("FLAGS --dangerously-skip-permissions forces bypass over defaultMode config
     userConfig: { defaultMode: "default" },
   }, async (h) => {
     await h.sessionStart();
-    assert.equal(h.statuses.at(-1)?.text, "⏵⏵⏵⏵ Bypass Permissions");
+    assert.equal(h.statuses.at(-1)?.text, "⏭ Bypass Permissions");
   });
 });
 

@@ -12,27 +12,48 @@
 export type PermissionMode = string;
 
 export interface ModeDefinition {
-  id: PermissionMode;
-  label: string;
-  description: string;
-  status: string;
+ id: PermissionMode;
+ label: string;
+ description: string;
+ status: string;
 }
 
 export const DEFAULT_MODE: PermissionMode = "bypassPermissions";
 
 export const BUILT_IN_MODES: ModeDefinition[] = [
-  { id: "default", label: "Default", description: "Ask before non-read tools; reads free", status: "⏵" },
-  { id: "acceptEdits", label: "Accept Edits", description: "Allow write/edit silently; confirm the rest", status: "⏵⏵" },
-  { id: "production-support", label: "Production Support", description: "Investigation mode: reads + safelisted read-only bash free; everything else prompts", status: "🛡" },
-  { id: "bypassPermissions", label: "Bypass Permissions", description: "Allow everything except deny/ask rules and the safety floor", status: "⏵⏵⏵⏵" },
+ {
+  id: "default",
+  label: "Default",
+  description: "Ask before non-read tools; reads free",
+  status: "⏵",
+ },
+ {
+  id: "acceptEdits",
+  label: "Accept Edits",
+  description: "Allow write/edit silently; confirm the rest",
+  status: "⏵⏵",
+ },
+ {
+  id: "production-support",
+  label: "Production Support",
+  description:
+   "Investigation mode: reads + safelisted read-only bash free; everything else prompts",
+  status: "🛡",
+ },
+ {
+  id: "bypassPermissions",
+  label: "Bypass Permissions",
+  description: "Allow everything except deny/ask rules and the safety floor",
+  status: "⏭",
+ },
 ];
 
 /** Shift+Tab cycle order (D1): default → acceptEdits → production-support → bypass. */
 export const SHIFT_TAB_ORDER: PermissionMode[] = [
-  "default",
-  "acceptEdits",
-  "production-support",
-  "bypassPermissions",
+ "default",
+ "acceptEdits",
+ "production-support",
+ "bypassPermissions",
 ];
 
 /** D2 investigation framing, injected via before_agent_start on mode entry. */
@@ -45,25 +66,33 @@ export const PRODUCTION_SUPPORT_ENDED_MESSAGE = `[PRODUCTION SUPPORT MODE ENDED]
 The user toggled out of production support mode. You may now proceed using the active permission mode.`;
 
 export function stringOrUndefined(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+ return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 export function stringArrayOrUndefined(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return;
-  const strings = value.filter((item): item is string => typeof item === "string" && item.length > 0);
-  return strings.length > 0 ? strings : undefined;
+ if (!Array.isArray(value)) return;
+ const strings = value.filter(
+  (item): item is string => typeof item === "string" && item.length > 0,
+ );
+ return strings.length > 0 ? strings : undefined;
 }
 
 /** True when `mode` is one of the 4 built-in modes. */
 export function isValidMode(mode: unknown): mode is PermissionMode {
-  return typeof mode === "string" && BUILT_IN_MODES.some((m) => m.id === mode);
+ return typeof mode === "string" && BUILT_IN_MODES.some((m) => m.id === mode);
 }
 
 /** Unknown/absent mode → fallback (never throws; plan/custom modes are gone). */
-export function normalizeMode(mode: unknown, fallback: PermissionMode = DEFAULT_MODE): PermissionMode {
-  return isValidMode(mode) ? mode : fallback;
+export function normalizeMode(
+ mode: unknown,
+ fallback: PermissionMode = DEFAULT_MODE,
+): PermissionMode {
+ return isValidMode(mode) ? mode : fallback;
 }
 
 export function getModeMeta(mode: PermissionMode): ModeDefinition {
-  return BUILT_IN_MODES.find((m) => m.id === mode) ?? BUILT_IN_MODES.find((m) => m.id === DEFAULT_MODE)!;
+ return (
+  BUILT_IN_MODES.find((m) => m.id === mode) ??
+  BUILT_IN_MODES.find((m) => m.id === DEFAULT_MODE)!
+ );
 }

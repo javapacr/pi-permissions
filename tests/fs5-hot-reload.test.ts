@@ -340,7 +340,7 @@ test("HOT: status counts update after a mid-session rule change", async () => {
     fireWrite(h, ".pi/permissions.json");
     await h.toolCall("read", { path: `${h.cwd}/x` });
     assert.equal(rulesStatus(), "π 0a·1d·0q");
-    assert.equal(h.statuses.at(-1)?.text, "⏵⏵⏵⏵ Bypass Permissions", "mode slot unchanged by a rule edit");
+    assert.equal(h.statuses.at(-1)?.text, "⏭ Bypass Permissions", "mode slot unchanged by a rule edit");
   });
 });
 
