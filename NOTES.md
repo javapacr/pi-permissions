@@ -822,3 +822,39 @@ R2/R8 at proposes/review-findings.md). REMAINING parked: glob support in
 protected-path matching; command-substitution/`..`-in-text normalization (both
 pinned OPEN in tests/safety.test.ts); R5 config-self-modification protection =
 accepted follow-up (post-rollout design decision, parity-with-today noted)."
+
+## Intercom PS entry framing (2026-09-05) — index.ts
+
+Finding (JSONL-verified 2026-09-04): production-support entry/exit framing never
+landed when the next turn arrived via pi-intercom. Root cause (pi 0.84.4):
+pi-core consumes `before_agent_start` custom messages ONLY in
+`AgentSession.prompt()` (dist/core/agent-session.js:914-930); intercom idle
+delivery enters via `sendCustomMessage(..., {triggerTurn:true})` →
+`_runAgentPrompt` (:1121), which never emits the event. TUI/print/RPC all
+converge on prompt() — only the intercom path bypasses.
+
+Fix (d1aa10b): one-shot consumer `takePendingPsMessage()` (psInjectionPending /
+psEndedPending, mutually exclusive arms); `before_agent_start` delegates to it
+(prompt-path turns unchanged); new `turn_start` handler — turnIndex===0,
+child-guarded — delivers the pending framing via `pi.sendMessage` with NO
+options (active-run steer; consumed in-run; if the run is ending, continue()
+drains the queue). Double-injection structurally impossible: prompt() consumes
+the flag before turn_start fires; flags re-arm only on explicit mode change
+(applyMode) or session_start.
+
+Known ordering delta (inherent to steer, accepted): on intercom turns the
+framing lands after the run's first model response (steer drain), not before it
+— within the same run, before agent_end. On prompt()-path turns it lands before
+the first response, unchanged.
+
+Verification: 230/230 + typecheck; fresh-context oracle PASS ×8 (steer-vs-trigger
+branch pinned via `options === undefined` assertion + core-source reading); live
+probe (herdr pane, real personal stack, `--permission-mode production-support`):
+intercom-initiated turn JSONL shows `intercom_message` →
+`production-support-context` exactly once (pre-fix: absent). Probe ask-reply
+hung at the intercom tool's ask dialog — PS correctly gates MCP tool calls;
+unrelated to the fix.
+
+pi-core contract gap remains upstream (`sendCustomMessage{triggerTurn}` bypasses
+the emit); the workaround does not depend on it. Optional filing per
+plan-ps-injection-intercom.md step 4.
