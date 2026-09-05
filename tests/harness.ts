@@ -73,6 +73,8 @@ export function boot(opts: HarnessOptions = {}) {
   const fakeWatch = opts.fakeWatch ? makeFakeWatch() : undefined;
   const notifications: Notification[] = [];
   const statuses: Status[] = [];
+  /** pi.sendMessage recordings (intercom-turn injection tests). */
+  const sentMessages: Array<{ message: Record<string, unknown>; options?: Record<string, unknown> }> = [];
   const choices: string[] = [];
   const registrations = {
     flags: [] as string[],
@@ -115,6 +117,9 @@ export function boot(opts: HarnessOptions = {}) {
       registrations.events.push(event);
       handlers.set(event, handler);
     },
+    sendMessage: (message: Record<string, unknown>, options?: Record<string, unknown>) => {
+      sentMessages.push({ message, options });
+    },
   };
 
   const makeCtx = (hasUI: boolean) => ({ ui, hasUI, cwd });
@@ -132,6 +137,7 @@ export function boot(opts: HarnessOptions = {}) {
     statuses,
     choices,
     registrations,
+    sentMessages,
 
     sessionStart: async () => {
       await ensureBooted();
@@ -140,6 +146,11 @@ export function boot(opts: HarnessOptions = {}) {
     beforeAgentStart: async () => {
       await ensureBooted();
       return handlers.get("before_agent_start")!({}, makeCtx(true));
+    },
+    /** Fire the turn_start event as pi-core would (turnIndex 0 = first turn of a run). */
+    turnStart: async (turnIndex = 0) => {
+      await ensureBooted();
+      return handlers.get("turn_start")!({ type: "turn_start", turnIndex, timestamp: Date.now() }, makeCtx(true));
     },
     /** Write a pi-subagents agent definition into <cwd>/.pi/agents (project scope). */
     writeAgentDef: (file: string, frontmatter: Record<string, string>) => {

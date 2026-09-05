@@ -288,28 +288,50 @@ export default async function permissionExtension(pi: ExtensionAPI, deps: Extens
     loadedAt: lastLoadTime,
   });
 
-  pi.on("before_agent_start", async () => {
+  /** Custom-message shape shared by both delivery paths (pi sendMessage Pick). */
+  type PsFramingMessage = { customType: string; content: string; display: true };
+
+  /**
+   * One-shot consumer for the pending production-support entry/exit framing.
+   * `before_agent_start` covers runs started through AgentSession.prompt()
+   * (pi-core consumes the returned custom message only there). Intercom idle
+   * delivery bypasses prompt() entirely (sendCustomMessage with triggerTurn →
+   * _runAgentPrompt directly), so `turn_start` (turnIndex 0) delivers the same
+   * message via pi.sendMessage — it steers into the already-running loop. One
+   * shared consumer clears the flag, so whichever path fires first wins and
+   * the two can never double-inject.
+   */
+  const takePendingPsMessage = (): PsFramingMessage | undefined => {
     if (psInjectionPending) {
       psInjectionPending = false;
       return {
-        message: {
-          customType: "production-support-context",
-          content: PRODUCTION_SUPPORT_MESSAGE,
-          display: true,
-        },
+        customType: "production-support-context",
+        content: PRODUCTION_SUPPORT_MESSAGE,
+        display: true,
       };
     }
 
     if (psEndedPending) {
       psEndedPending = false;
       return {
-        message: {
-          customType: "production-support-ended-context",
-          content: PRODUCTION_SUPPORT_ENDED_MESSAGE,
-          display: true,
-        },
+        customType: "production-support-ended-context",
+        content: PRODUCTION_SUPPORT_ENDED_MESSAGE,
+        display: true,
       };
     }
+
+    return undefined;
+  };
+
+  pi.on("before_agent_start", async () => {
+    const message = takePendingPsMessage();
+    return message ? { message } : undefined;
+  });
+
+  pi.on("turn_start", async (event) => {
+    if (isChild || event.turnIndex !== 0) return;
+    const message = takePendingPsMessage();
+    if (message) pi.sendMessage(message);
   });
 
   const denyReason = (verdict: EvalResult): string =>

@@ -43,7 +43,7 @@ test("factory runs against a stub pi without reading real config (FS2 rewiring s
     assert.ok(!registrations.shortcuts.includes("shift+tab"));
     assert.deepEqual(
       registrations.events.sort(),
-      ["before_agent_start", "session_shutdown", "session_start", "tool_call"],
+      ["before_agent_start", "session_shutdown", "session_start", "tool_call", "turn_start"],
     );
   } finally {
     if (previousCwd !== process.cwd()) process.chdir(previousCwd);
